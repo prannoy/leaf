@@ -70,6 +70,14 @@ export interface ReadwiseSettings {
   lastSyncedAt: number;
 }
 
+export interface DewSyncSettings {
+  enabled: boolean;
+  apiUrl: string;
+  apiKey: string;
+  syncProgress: boolean;
+  syncNotes: boolean;
+}
+
 export interface SystemSettings {
   version: number;
   localBooksDir: string;
@@ -108,6 +116,7 @@ export interface SystemSettings {
 
   kosync: KOSyncSettings;
   readwise: ReadwiseSettings;
+  dewSync: DewSyncSettings;
 
   lastSyncedAtBooks: number;
   lastSyncedAtConfigs: number;

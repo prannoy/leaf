@@ -352,6 +352,9 @@ export interface BookConfig {
   lastSyncedAtConfig?: number;
   lastSyncedAtNotes?: number;
 
+  dewDocumentId?: string;
+  dewSyncedNoteIds?: Record<string, string>;
+
   updatedAt: number;
 }
 

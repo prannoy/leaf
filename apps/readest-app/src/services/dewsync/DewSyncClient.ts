@@ -1,0 +1,145 @@
+import { DewSyncSettings } from '@/types/settings';
+
+interface DewResult<T = unknown> {
+  success: boolean;
+  data?: T;
+  isNetworkError?: boolean;
+  message?: string;
+}
+
+interface UploadResponse {
+  success: boolean;
+  id: string;
+  message?: string;
+  duplicate?: boolean;
+}
+
+interface DocumentResponse {
+  id: string;
+  title?: string;
+  author?: string;
+  [key: string]: unknown;
+}
+
+interface UploadOptions {
+  title: string;
+  author: string;
+  totalPages?: number;
+  filename: string;
+  sourceConnector: string;
+}
+
+interface ProgressInput {
+  documentId: string;
+  currentPage: number;
+  status?: string;
+}
+
+interface NoteInput {
+  documentId: string;
+  content: string;
+  pageNumber?: number;
+}
+
+export class DewSyncClient {
+  private config: DewSyncSettings;
+
+  constructor(config: DewSyncSettings) {
+    this.config = config;
+  }
+
+  private get baseUrl(): string {
+    return `${this.config.apiUrl}/api/v1`;
+  }
+
+  private get headers(): Record<string, string> {
+    return {
+      Authorization: `Bearer ${this.config.apiKey}`,
+    };
+  }
+
+  async checkHealth(): Promise<DewResult> {
+    try {
+      const res = await fetch(`${this.baseUrl}/health`, { headers: this.headers });
+      return { success: res.ok };
+    } catch {
+      return { success: false, isNetworkError: true };
+    }
+  }
+
+  async uploadDocument(file: Blob, options: UploadOptions): Promise<DewResult<UploadResponse>> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file, options.filename);
+      formData.append('title', options.title);
+      formData.append('author', options.author);
+      formData.append('sourceConnector', options.sourceConnector);
+      if (options.totalPages != null) {
+        formData.append('totalPages', String(options.totalPages));
+      }
+
+      const res = await fetch(`${this.baseUrl}/documents/upload`, {
+        method: 'POST',
+        headers: this.headers,
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        return { success: false, message: `HTTP ${res.status}: ${errText}` };
+      }
+
+      const data = (await res.json()) as UploadResponse;
+      return { success: true, data };
+    } catch (e) {
+      return { success: false, message: (e as Error).message, isNetworkError: true };
+    }
+  }
+
+  async getDocument(id: string): Promise<DewResult<DocumentResponse>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/documents/${id}`, { headers: this.headers });
+      if (!res.ok) {
+        return { success: false, message: `HTTP ${res.status}` };
+      }
+      const data = (await res.json()) as DocumentResponse;
+      return { success: true, data };
+    } catch (e) {
+      return { success: false, message: (e as Error).message, isNetworkError: true };
+    }
+  }
+
+  async updateProgress(input: ProgressInput): Promise<DewResult> {
+    try {
+      const res = await fetch(`${this.baseUrl}/documents/progress`, {
+        method: 'POST',
+        headers: { ...this.headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        return { success: false, message: `HTTP ${res.status}: ${errText}` };
+      }
+      return { success: true };
+    } catch (e) {
+      return { success: false, message: (e as Error).message, isNetworkError: true };
+    }
+  }
+
+  async addNote(input: NoteInput): Promise<DewResult> {
+    try {
+      const res = await fetch(`${this.baseUrl}/documents/notes`, {
+        method: 'POST',
+        headers: { ...this.headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        return { success: false, message: `HTTP ${res.status}: ${errText}` };
+      }
+      return { success: true };
+    } catch (e) {
+      return { success: false, message: (e as Error).message, isNetworkError: true };
+    }
+  }
+}

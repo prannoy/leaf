@@ -16,6 +16,7 @@ import {
   ViewSettings,
 } from '@/types/book';
 import {
+  DewSyncSettings,
   KOSyncSettings,
   LibraryGroupByType,
   LibrarySortByType,
@@ -73,6 +74,14 @@ export const DEFAULT_READWISE_SETTINGS = {
   lastSyncedAt: 0,
 } as ReadwiseSettings;
 
+export const DEFAULT_DEW_SYNC_SETTINGS = {
+  enabled: false,
+  apiUrl: 'http://localhost:8080',
+  apiKey: '',
+  syncProgress: true,
+  syncNotes: true,
+} as DewSyncSettings;
+
 export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
   keepLogin: false,
   autoUpload: true,
@@ -103,6 +112,7 @@ export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
 
   kosync: DEFAULT_KOSYNC_SETTINGS,
   readwise: DEFAULT_READWISE_SETTINGS,
+  dewSync: DEFAULT_DEW_SYNC_SETTINGS,
   aiSettings: DEFAULT_AI_SETTINGS,
 
   lastSyncedAtBooks: 0,
