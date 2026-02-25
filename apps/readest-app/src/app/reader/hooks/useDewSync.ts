@@ -165,13 +165,13 @@ export const useDewSync = (bookKey: string) => {
       const book = getBookData(bookKey)?.book;
       if (!book) return;
 
-      const remoteUpdatedAt = remoteDoc['updated_at']
-        ? new Date(remoteDoc['updated_at'] as string).getTime()
+      const remoteUpdatedAt = remoteDoc['updatedAt']
+        ? new Date(remoteDoc['updatedAt'] as string).getTime()
         : 0;
       const localLastSync = currentConfig?.dewLastProgressSyncAt || 0;
 
-      const remoteCurrentPage = (remoteDoc['current_page'] as number) ?? null;
-      const remoteTotalPages = (remoteDoc['total_pages'] as number) ?? null;
+      const remoteCurrentPage = (remoteDoc['currentPage'] as number) ?? null;
+      const remoteTotalPages = (remoteDoc['totalPages'] as number) ?? null;
 
       if (remoteCurrentPage == null || remoteTotalPages == null) return;
 
@@ -193,7 +193,7 @@ export const useDewSync = (bookKey: string) => {
         });
 
         // Map remote reading status
-        const remoteStatus = remoteDoc['reading_status'] as string | undefined;
+        const remoteStatus = remoteDoc['readingStatus'] as string | undefined;
         if (remoteStatus === 'completed' && book.readingStatus !== 'finished') {
           // Update book reading status through the book data
           const bookData = getBookData(bookKey);
@@ -234,7 +234,7 @@ export const useDewSync = (bookKey: string) => {
         return;
       }
 
-      const { notes: remoteNotes } = result.data;
+      const remoteNotes = result.data;
       if (remoteNotes.length === 0) {
         console.log('[DewSync] No new remote notes');
         setConfig(bookKey, { dewLastNotesSyncAt: Date.now() });
@@ -250,23 +250,17 @@ export const useDewSync = (bookKey: string) => {
       for (const remoteNote of remoteNotes) {
         const remoteBookNote = dewNoteToBookNote(remoteNote, book.hash);
 
-        // Parse metadata to check for leafNoteId
-        let metadata: { leafNoteId?: string; updatedAt?: number; deletedAt?: number | null } | null =
-          null;
-        if (remoteNote.metadata) {
-          try {
-            metadata = JSON.parse(remoteNote.metadata);
-          } catch {
-            // not valid JSON
-          }
-        }
+        // metadata is already a parsed object from the API
+        const metadata = remoteNote.metadata as
+          | { leafNoteId?: string; updatedAt?: number; deletedAt?: number | null }
+          | null;
 
         if (metadata?.leafNoteId) {
           // Note originated from Leaf — LWW merge
           const localIdx = booknotes.findIndex((n) => n.id === metadata!.leafNoteId);
           if (localIdx !== -1) {
             const localNote = booknotes[localIdx]!;
-            const remoteUpdatedAt = metadata.updatedAt || new Date(remoteNote.updated_at).getTime();
+            const remoteUpdatedAt = metadata.updatedAt || new Date(remoteNote.updatedAt).getTime();
 
             // Soft-delete handling
             if (metadata.deletedAt) {
@@ -387,10 +381,18 @@ export const useDewSync = (bookKey: string) => {
 
         for (const note of newNotes) {
           const input = bookNoteToStructuredInput(note, currentConfig.dewDocumentId);
-          const result = await client.addNote(input);
+          // Step 1: POST creates the note (content only, metadata not persisted by POST)
+          const result = await client.addNote({
+            documentId: input.documentId,
+            content: input.content,
+          });
           if (result.success) {
-            // Store leafNoteId → dewNoteId mapping
-            updatedSyncedIds[note.id] = result.data?.id || note.id;
+            const noteId = result.data?.id || '';
+            // Step 2: PUT adds metadata (POST doesn't persist metadata)
+            if (noteId) {
+              await client.updateNote(noteId, { metadata: input.metadata });
+            }
+            updatedSyncedIds[note.id] = noteId || note.id;
           } else if (!result.isNetworkError) {
             console.log('[DewSync] Note sync failed:', result.message);
           }

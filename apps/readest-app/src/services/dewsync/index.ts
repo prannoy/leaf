@@ -1,5 +1,5 @@
 export { DewSyncClient } from './DewSyncClient';
-export type { DewDocument, DewNote, DewDocumentListResponse, DewNotesResponse } from './DewSyncClient';
+export type { DewDocument, DewNote } from './DewSyncClient';
 export {
   bookToUploadOptions,
   progressToUpdate,

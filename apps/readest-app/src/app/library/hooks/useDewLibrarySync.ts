@@ -60,7 +60,7 @@ export const useDewLibrarySync = () => {
         return;
       }
 
-      const { documents } = result.data;
+      const documents = result.data;
       if (documents.length === 0) {
         console.log('[DewLibrarySync] No new documents');
         return;

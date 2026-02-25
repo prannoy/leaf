@@ -77,20 +77,20 @@ function guessFormatFromFilename(title: string): BookFormat {
 
 export function dewDocumentToBook(doc: DewDocument): Partial<Book> {
   const format =
-    (doc.mime_type && MIME_TO_FORMAT[doc.mime_type]) || guessFormatFromFilename(doc.title);
+    (doc.mimeType && MIME_TO_FORMAT[doc.mimeType]) || guessFormatFromFilename(doc.title);
 
   const book: Partial<Book> = {
     title: doc.title,
     author: doc.author || '',
     format,
-    readingStatus: dewStatusToReadingStatus(doc.reading_status),
-    createdAt: new Date(doc.created_at).getTime(),
-    updatedAt: new Date(doc.updated_at).getTime(),
+    readingStatus: dewStatusToReadingStatus(doc.readingStatus),
+    createdAt: new Date(doc.createdAt).getTime(),
+    updatedAt: new Date(doc.updatedAt).getTime(),
   };
 
-  if (doc.current_page != null && doc.total_pages != null) {
+  if (doc.currentPage != null && doc.totalPages != null) {
     // cc-mem is 0-based, Leaf is 1-based
-    book.progress = [doc.current_page + 1, doc.total_pages];
+    book.progress = [doc.currentPage + 1, doc.totalPages];
   }
 
   return book;
@@ -107,10 +107,15 @@ export interface NoteMetadata {
   deletedAt?: number | null;
 }
 
+/**
+ * Build the input for addNote (POST) + updateNote (PUT) two-step flow.
+ * POST /documents/notes creates the note (content only).
+ * PUT /documents/notes/:id adds metadata (POST doesn't persist metadata).
+ */
 export function bookNoteToStructuredInput(
   note: BookNote,
   documentId: string,
-): { documentId: string; content: string; pageNumber?: number; metadata: string } {
+): { documentId: string; content: string; metadata: NoteMetadata } {
   const metadata: NoteMetadata = {
     cfi: note.cfi,
     style: note.style,
@@ -127,19 +132,13 @@ export function bookNoteToStructuredInput(
   return {
     documentId,
     content,
-    metadata: JSON.stringify(metadata),
+    metadata,
   };
 }
 
 export function dewNoteToBookNote(dewNote: DewNote, bookHash: string): BookNote {
-  let metadata: NoteMetadata | null = null;
-  if (dewNote.metadata) {
-    try {
-      metadata = JSON.parse(dewNote.metadata) as NoteMetadata;
-    } catch {
-      // metadata is not valid JSON, treat as external note
-    }
-  }
+  // metadata is already a parsed object from the API (not a JSON string)
+  const metadata = dewNote.metadata as NoteMetadata | null;
 
   if (metadata?.leafNoteId) {
     // Reconstructing from structured metadata — this note originated from Leaf
@@ -152,8 +151,8 @@ export function dewNoteToBookNote(dewNote: DewNote, bookHash: string): BookNote 
       style: metadata.style as BookNote['style'],
       color: metadata.color as BookNote['color'],
       note: extractNoteText(dewNote.content),
-      createdAt: new Date(dewNote.created_at).getTime(),
-      updatedAt: metadata.updatedAt || new Date(dewNote.updated_at).getTime(),
+      createdAt: new Date(dewNote.createdAt).getTime(),
+      updatedAt: metadata.updatedAt || new Date(dewNote.updatedAt).getTime(),
       deletedAt: metadata.deletedAt,
     };
   }
@@ -166,8 +165,8 @@ export function dewNoteToBookNote(dewNote: DewNote, bookHash: string): BookNote 
     cfi: '',
     text: dewNote.content,
     note: '',
-    createdAt: new Date(dewNote.created_at).getTime(),
-    updatedAt: new Date(dewNote.updated_at).getTime(),
+    createdAt: new Date(dewNote.createdAt).getTime(),
+    updatedAt: new Date(dewNote.updatedAt).getTime(),
   };
 }
 

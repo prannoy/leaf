@@ -25,33 +25,24 @@ export interface DewDocument {
   id: string;
   title: string;
   author: string;
-  mime_type?: string;
-  file_hash?: string;
-  total_pages?: number;
-  current_page?: number;
-  reading_status?: string;
-  source_connector?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface DewDocumentListResponse {
-  documents: DewDocument[];
-  total: number;
+  mimeType?: string;
+  fileHash?: string;
+  totalPages?: number;
+  currentPage?: number;
+  readingStatus?: string;
+  sourceConnector?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DewNote {
   id: string;
-  document_id: string;
+  documentId: string;
   content: string;
-  page_number?: number;
-  metadata?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface DewNotesResponse {
-  notes: DewNote[];
+  pageNumber?: number;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface UploadOptions {
@@ -72,12 +63,11 @@ interface NoteInput {
   documentId: string;
   content: string;
   pageNumber?: number;
-  metadata?: string;
 }
 
 interface NoteUpdateInput {
   content?: string;
-  metadata?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export class DewSyncClient {
@@ -172,14 +162,15 @@ export class DewSyncClient {
       if (!res.ok) {
         return { success: false, message: `HTTP ${res.status}` };
       }
-      const data = (await res.json()) as DocumentResponse;
+      const json = await res.json();
+      const data = (json.data ?? json) as DocumentResponse;
       return { success: true, data };
     } catch (e) {
       return { success: false, message: (e as Error).message, isNetworkError: true };
     }
   }
 
-  async listDocuments(since?: string): Promise<DewResult<DewDocumentListResponse>> {
+  async listDocuments(since?: string): Promise<DewResult<DewDocument[]>> {
     try {
       const params = new URLSearchParams();
       if (since) params.set('since', since);
@@ -191,7 +182,7 @@ export class DewSyncClient {
         return { success: false, message: `HTTP ${res.status}` };
       }
       const json = await res.json();
-      const data = json.data ?? json;
+      const data = (json.data ?? json) as DewDocument[];
       return { success: true, data };
     } catch (e) {
       return { success: false, message: (e as Error).message, isNetworkError: true };
@@ -249,10 +240,7 @@ export class DewSyncClient {
     }
   }
 
-  async getDocumentNotes(
-    documentId: string,
-    since?: string,
-  ): Promise<DewResult<DewNotesResponse>> {
+  async getDocumentNotes(documentId: string, since?: string): Promise<DewResult<DewNote[]>> {
     try {
       const params = new URLSearchParams();
       if (since) params.set('since', since);
@@ -266,7 +254,7 @@ export class DewSyncClient {
         return { success: false, message: `HTTP ${res.status}` };
       }
       const json = await res.json();
-      const data = json.data ?? json;
+      const data = (json.data ?? json) as DewNote[];
       return { success: true, data };
     } catch (e) {
       return { success: false, message: (e as Error).message, isNetworkError: true };
