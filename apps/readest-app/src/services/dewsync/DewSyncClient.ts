@@ -89,8 +89,14 @@ export class DewSyncClient {
         return { success: false, message: `HTTP ${res.status}: ${errText}` };
       }
 
-      const data = (await res.json()) as UploadResponse;
-      return { success: true, data };
+      const json = await res.json();
+      // cc-mem wraps responses as { ok, data: { success, id, ... } }
+      const payload = json.data ?? json;
+      const docId = payload.id || payload.documentId;
+      if (docId) {
+        return { success: true, data: { ...payload, id: docId } };
+      }
+      return { success: false, message: `No document ID in response: ${JSON.stringify(json)}` };
     } catch (e) {
       return { success: false, message: (e as Error).message, isNetworkError: true };
     }

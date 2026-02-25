@@ -4,9 +4,35 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useReaderStore } from '@/store/readerStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { debounce } from '@/utils/debounce';
+import { DewSyncSettings } from '@/types/settings';
+import { DEFAULT_DEW_SYNC_SETTINGS } from '@/services/constants';
 import { DewSyncClient, bookToUploadOptions, progressToUpdate, noteToContent } from '@/services/dewsync';
 
 const DEW_SYNC_DEBOUNCE_MS = 5000;
+
+/**
+ * Resolve effective DewSync settings by merging store settings with env var fallbacks.
+ * This allows configuring via NEXT_PUBLIC_DEW_API_KEY / NEXT_PUBLIC_DEW_API_URL env vars
+ * without needing a settings UI.
+ */
+function resolveDewSyncSettings(stored: DewSyncSettings | undefined): DewSyncSettings {
+  const envApiKey = process.env['NEXT_PUBLIC_DEW_API_KEY'] ?? '';
+  const envApiUrl = process.env['NEXT_PUBLIC_DEW_API_URL'] ?? '';
+
+  const base = stored ?? DEFAULT_DEW_SYNC_SETTINGS;
+
+  // If an env API key is provided, treat DewSync as enabled
+  if (envApiKey && !base.apiKey) {
+    return {
+      ...base,
+      enabled: true,
+      apiKey: envApiKey,
+      apiUrl: envApiUrl || base.apiUrl,
+    };
+  }
+
+  return base;
+}
 
 export const useDewSync = (bookKey: string) => {
   const { appService } = useEnv();
@@ -23,14 +49,15 @@ export const useDewSync = (bookKey: string) => {
   useEffect(() => {
     if (!appService || hasUploadedRef.current || uploadingRef.current) return;
     const { settings } = useSettingsStore.getState();
-    if (!settings.dewSync?.enabled || !settings.dewSync?.apiKey) return;
+    const dewSync = resolveDewSyncSettings(settings.dewSync);
+    if (!dewSync.enabled || !dewSync.apiKey) return;
 
     const bookData = getBookData(bookKey);
     const book = bookData?.book;
     const currentConfig = getConfig(bookKey);
     if (!book) return;
 
-    const client = new DewSyncClient(settings.dewSync);
+    const client = new DewSyncClient(dewSync);
 
     const doUpload = async () => {
       // If we already have a dewDocumentId, verify it still exists
@@ -72,13 +99,14 @@ export const useDewSync = (bookKey: string) => {
     () =>
       debounce(async () => {
         const { settings } = useSettingsStore.getState();
-        if (!settings.dewSync?.enabled || !settings.dewSync?.syncProgress) return;
+        const dewSync = resolveDewSyncSettings(settings.dewSync);
+        if (!dewSync.enabled || !dewSync.syncProgress) return;
 
         const currentConfig = getConfig(bookKey);
         const book = getBookData(bookKey)?.book;
         if (!currentConfig?.dewDocumentId || !book?.progress) return;
 
-        const client = new DewSyncClient(settings.dewSync);
+        const client = new DewSyncClient(dewSync);
         const update = progressToUpdate(currentConfig.dewDocumentId, book);
         if (!update) return;
 
@@ -93,7 +121,8 @@ export const useDewSync = (bookKey: string) => {
   useEffect(() => {
     if (!progress?.location) return;
     const { settings } = useSettingsStore.getState();
-    if (!settings.dewSync?.enabled) return;
+    const dewSync = resolveDewSyncSettings(settings.dewSync);
+    if (!dewSync.enabled) return;
     debouncedProgressSync();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress?.location]);
@@ -104,7 +133,8 @@ export const useDewSync = (bookKey: string) => {
     () =>
       debounce(async () => {
         const { settings } = useSettingsStore.getState();
-        if (!settings.dewSync?.enabled || !settings.dewSync?.syncNotes) return;
+        const dewSync = resolveDewSyncSettings(settings.dewSync);
+        if (!dewSync.enabled || !dewSync.syncNotes) return;
 
         const currentConfig = getConfig(bookKey);
         if (!currentConfig?.dewDocumentId) return;
@@ -121,7 +151,7 @@ export const useDewSync = (bookKey: string) => {
         );
         if (newNotes.length === 0) return;
 
-        const client = new DewSyncClient(settings.dewSync);
+        const client = new DewSyncClient(dewSync);
         const updatedSyncedIds = { ...syncedIds };
 
         for (const note of newNotes) {
