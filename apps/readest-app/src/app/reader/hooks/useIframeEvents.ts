@@ -4,6 +4,7 @@ import { useBookDataStore } from '@/store/bookDataStore';
 import { debounce } from '@/utils/debounce';
 import { ScrollSource } from './usePagination';
 import { eventDispatcher } from '@/utils/event';
+import { pinchZoomStateRef } from './usePinchZoom';
 
 export const useMouseEvent = (
   bookKey: string,
@@ -89,6 +90,7 @@ interface IframeTouch {
 interface IframeTouchEvent {
   timeStamp: number;
   targetTouches: IframeTouch[];
+  touchCount?: number;
 }
 
 export const useTouchEvent = (
@@ -105,6 +107,9 @@ export const useTouchEvent = (
   const touchEndTimeRef = useRef<number | null>(null);
 
   const onTouchStart = (e: IframeTouchEvent | React.TouchEvent<HTMLDivElement>) => {
+    const touchCount = 'touchCount' in e ? (e as IframeTouchEvent).touchCount : e.targetTouches.length;
+    if (pinchZoomStateRef.current.isPinching || (touchCount ?? 0) > 1) return;
+    if (pinchZoomStateRef.current.isZoomed) return;
     const touch = e.targetTouches[0];
     if (!touch) return;
     touchStartRef.current = touch;
@@ -112,6 +117,7 @@ export const useTouchEvent = (
   };
 
   const onTouchMove = (e: IframeTouchEvent | React.TouchEvent<HTMLDivElement>) => {
+    if (pinchZoomStateRef.current.isPinching || pinchZoomStateRef.current.isZoomed) return;
     if (!touchStartRef.current) return;
     const touch = e.targetTouches[0];
     if (touch) {
@@ -135,6 +141,7 @@ export const useTouchEvent = (
   };
 
   const onTouchEnd = (e: IframeTouchEvent | React.TouchEvent<HTMLDivElement>) => {
+    if (pinchZoomStateRef.current.isPinching || pinchZoomStateRef.current.isZoomed) return;
     if (!touchStartRef.current) return;
 
     const touch = e.targetTouches[0];

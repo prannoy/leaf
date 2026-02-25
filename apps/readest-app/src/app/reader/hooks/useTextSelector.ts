@@ -5,6 +5,7 @@ import { getOSPlatform } from '@/utils/misc';
 import { eventDispatcher } from '@/utils/event';
 import { isPointerInsideSelection, TextSelection } from '@/utils/sel';
 import { useInstantAnnotation } from './useInstantAnnotation';
+import { pinchZoomStateRef } from './usePinchZoom';
 
 export const useTextSelector = (
   bookKey: string,
@@ -151,6 +152,7 @@ export const useTextSelector = (
     }
   };
   const handleTouchStart = () => {
+    if (pinchZoomStateRef.current.isPinching) return;
     isTouchStarted.current = true;
   };
   const handleTouchMove = (ev: TouchEvent) => {

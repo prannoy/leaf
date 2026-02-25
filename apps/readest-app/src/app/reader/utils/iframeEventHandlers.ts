@@ -234,9 +234,12 @@ export const handleClick = (
 };
 
 const handleTouchEv = (bookKey: string, event: TouchEvent, type: string) => {
-  const touch = event.targetTouches[0];
+  // Use event.touches (all active touches) instead of event.targetTouches
+  // (only touches on the same target element) so pinch gestures with fingers
+  // on different DOM elements are still captured correctly.
   const touches = [];
-  if (touch) {
+  for (let i = 0; i < event.touches.length; i++) {
+    const touch = event.touches[i]!;
     touches.push({
       clientX: touch.clientX,
       clientY: touch.clientY,
@@ -250,6 +253,7 @@ const handleTouchEv = (bookKey: string, event: TouchEvent, type: string) => {
       bookKey,
       timeStamp: Date.now(),
       targetTouches: touches,
+      touchCount: event.touches.length,
       ...getKeyStatus(event),
     },
     '*',

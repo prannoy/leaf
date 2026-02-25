@@ -611,6 +611,10 @@ foliate-fxl {
   --tglbg: theme('colors.base-100') !important;
 }
 
+.foliate-viewer.zoomed {
+  touch-action: none;
+}
+
 .no-transitions * {
   transition: none !important;
 }

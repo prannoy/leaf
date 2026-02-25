@@ -12,6 +12,7 @@ import { useCustomFontStore } from '@/store/customFontStore';
 import { useParallelViewStore } from '@/store/parallelViewStore';
 import { useMouseEvent, useTouchEvent, useLongPressEvent } from '../hooks/useIframeEvents';
 import { usePagination } from '../hooks/usePagination';
+import { usePinchZoom } from '../hooks/usePinchZoom';
 import { useFoliateEvents } from '../hooks/useFoliateEvents';
 import { useProgressSync } from '../hooks/useProgressSync';
 import { useProgressAutoSave } from '../hooks/useProgressAutoSave';
@@ -124,6 +125,7 @@ const FoliateViewer: React.FC<{
 
   const progressRelocateHandler = (event: Event) => {
     const detail = (event as CustomEvent).detail;
+    resetZoom();
     setProgress(
       bookKey,
       detail.cfi,
@@ -291,6 +293,9 @@ const FoliateViewer: React.FC<{
   const { handlePageFlip, handleContinuousScroll } = usePagination(bookKey, viewRef, containerRef);
   const mouseHandlers = useMouseEvent(bookKey, handlePageFlip, handleContinuousScroll);
   const touchHandlers = useTouchEvent(bookKey, handlePageFlip, handleContinuousScroll);
+  const { zoomStyle, resetZoom, zoomState } = usePinchZoom(bookKey, containerRef, {
+    enabled: appService?.isMobile ?? false,
+  });
 
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedTableHtml, setSelectedTableHtml] = useState<string | null>(null);
@@ -611,10 +616,16 @@ const FoliateViewer: React.FC<{
         style={{
           paddingTop: showViewMargins ? insets.top : 0,
           paddingBottom: showViewMargins ? insets.bottom : 0,
+          ...zoomStyle,
         }}
         {...mouseHandlers}
         {...touchHandlers}
       />
+      {zoomState.isZoomed && (
+        <div className='pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-sm text-white'>
+          {Math.round(zoomState.scale * 100)}%
+        </div>
+      )}
       <ParagraphControl bookKey={bookKey} viewRef={viewRef} gridInsets={gridInsets} />
       {!docLoaded.current && loading && <Spinner loading={true} />}
       {syncState === 'conflict' && conflictDetails && (
