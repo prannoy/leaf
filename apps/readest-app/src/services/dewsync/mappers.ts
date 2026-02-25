@@ -13,7 +13,7 @@ export function bookToUploadOptions(book: Book) {
 
 export function progressToUpdate(documentId: string, book: Book) {
   if (!book.progress) return null;
-  const [current] = book.progress;
+  const [current, total] = book.progress;
   // Leaf progress is 1-based; cc-mem currentPage is 0-based
   const currentPage = Math.max(0, current - 1);
 
@@ -24,7 +24,7 @@ export function progressToUpdate(documentId: string, book: Book) {
     status = 'reading';
   }
 
-  return { documentId, currentPage, status };
+  return { documentId, currentPage, totalPages: total, status };
 }
 
 export function noteToContent(note: BookNote): string {

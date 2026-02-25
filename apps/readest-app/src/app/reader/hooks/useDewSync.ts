@@ -394,7 +394,7 @@ export const useDewSync = (bookKey: string) => {
             const noteId = result.data?.id || '';
             // Step 2: PUT adds metadata (POST doesn't persist metadata)
             if (noteId) {
-              await client.updateNote(noteId, { metadata: input.metadata });
+              await client.updateNote(noteId, { metadata: input.metadata as Record<string, unknown> });
             }
             updatedSyncedIds[note.id] = noteId || note.id;
           } else if (!result.isNetworkError) {

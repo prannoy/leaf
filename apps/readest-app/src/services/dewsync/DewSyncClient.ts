@@ -56,6 +56,7 @@ interface UploadOptions {
 interface ProgressInput {
   documentId: string;
   currentPage: number;
+  totalPages?: number;
   status?: string;
 }
 
