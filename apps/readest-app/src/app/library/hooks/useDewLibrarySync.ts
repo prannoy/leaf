@@ -10,16 +10,21 @@ import { Book } from '@/types/book';
 
 const DEW_LIBRARY_SYNC_INTERVAL_MS = 60_000;
 
+// Next.js inlines NEXT_PUBLIC_* only with dot notation — bracket notation won't be replaced.
+// @ts-expect-error TS4111: index signature access required, but dot notation needed for Next.js inlining
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const DEW_ENV_API_KEY = process.env['NEXT_PUBLIC_DEW_API_KEY'];
+const DEW_ENV_API_KEY = process.env.NEXT_PUBLIC_DEW_API_KEY;
+// @ts-expect-error TS4111: index signature access required, but dot notation needed for Next.js inlining
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const DEW_ENV_API_URL = process.env['NEXT_PUBLIC_DEW_API_URL'];
+const DEW_ENV_API_URL = process.env.NEXT_PUBLIC_DEW_API_URL;
 
 function resolveDewSyncSettings(stored: DewSyncSettings | undefined): DewSyncSettings {
   const envApiKey = DEW_ENV_API_KEY ?? '';
   const envApiUrl = DEW_ENV_API_URL ?? '';
 
-  const base = stored ?? DEFAULT_DEW_SYNC_SETTINGS;
+  // Merge stored on top of defaults to fill in any missing fields (e.g. syncLibrary
+  // added after settings were first saved)
+  const base = { ...DEFAULT_DEW_SYNC_SETTINGS, ...(stored ?? {}) };
 
   if (envApiKey && !base.apiKey) {
     return {

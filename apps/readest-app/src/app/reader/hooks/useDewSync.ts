@@ -21,10 +21,13 @@ const DEW_SYNC_DEBOUNCE_MS = 5000;
  * This allows configuring via NEXT_PUBLIC_DEW_API_KEY / NEXT_PUBLIC_DEW_API_URL env vars
  * without needing a settings UI.
  */
+// Next.js inlines NEXT_PUBLIC_* only with dot notation — bracket notation won't be replaced.
+// @ts-expect-error TS4111: index signature access required, but dot notation needed for Next.js inlining
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const DEW_ENV_API_KEY = process.env['NEXT_PUBLIC_DEW_API_KEY'];
+const DEW_ENV_API_KEY = process.env.NEXT_PUBLIC_DEW_API_KEY;
+// @ts-expect-error TS4111: index signature access required, but dot notation needed for Next.js inlining
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const DEW_ENV_API_URL = process.env['NEXT_PUBLIC_DEW_API_URL'];
+const DEW_ENV_API_URL = process.env.NEXT_PUBLIC_DEW_API_URL;
 
 function resolveDewSyncSettings(stored: DewSyncSettings | undefined): DewSyncSettings {
   const envApiKey = DEW_ENV_API_KEY ?? '';
@@ -32,7 +35,8 @@ function resolveDewSyncSettings(stored: DewSyncSettings | undefined): DewSyncSet
 
   console.log('[DewSync] Env vars:', { envApiKey: envApiKey ? 'set' : 'empty', envApiUrl });
 
-  const base = stored ?? DEFAULT_DEW_SYNC_SETTINGS;
+  // Merge stored on top of defaults to fill in any missing fields
+  const base = { ...DEFAULT_DEW_SYNC_SETTINGS, ...(stored ?? {}) };
 
   // If an env API key is provided, treat DewSync as enabled
   if (envApiKey && !base.apiKey) {
