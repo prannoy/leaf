@@ -102,6 +102,31 @@ export class DewSyncClient {
     }
   }
 
+  async searchDocument(query: string): Promise<DewResult<{ id: string } | null>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/documents/search`, {
+        method: 'POST',
+        headers: { ...this.headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+      if (!res.ok) {
+        return { success: false, message: `HTTP ${res.status}` };
+      }
+      const json = await res.json();
+      const data = json.data ?? json;
+      if (data.count > 0 && data.formatted) {
+        // Parse first document ID from formatted response: ... (ID: uuid)
+        const match = data.formatted.match(/\(ID:\s*([0-9a-f-]+)\)/);
+        if (match) {
+          return { success: true, data: { id: match[1] } };
+        }
+      }
+      return { success: true, data: null };
+    } catch (e) {
+      return { success: false, message: (e as Error).message, isNetworkError: true };
+    }
+  }
+
   async getDocument(id: string): Promise<DewResult<DocumentResponse>> {
     try {
       const res = await fetch(`${this.baseUrl}/documents/${id}`, { headers: this.headers });

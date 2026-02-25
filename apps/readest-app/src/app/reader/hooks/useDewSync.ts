@@ -15,9 +15,16 @@ const DEW_SYNC_DEBOUNCE_MS = 5000;
  * This allows configuring via NEXT_PUBLIC_DEW_API_KEY / NEXT_PUBLIC_DEW_API_URL env vars
  * without needing a settings UI.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const DEW_ENV_API_KEY = process.env.NEXT_PUBLIC_DEW_API_KEY;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const DEW_ENV_API_URL = process.env.NEXT_PUBLIC_DEW_API_URL;
+
 function resolveDewSyncSettings(stored: DewSyncSettings | undefined): DewSyncSettings {
-  const envApiKey = process.env['NEXT_PUBLIC_DEW_API_KEY'] ?? '';
-  const envApiUrl = process.env['NEXT_PUBLIC_DEW_API_URL'] ?? '';
+  const envApiKey = DEW_ENV_API_KEY ?? '';
+  const envApiUrl = DEW_ENV_API_URL ?? '';
+
+  console.log('[DewSync] Env vars:', { envApiKey: envApiKey ? 'set' : 'empty', envApiUrl });
 
   const base = stored ?? DEFAULT_DEW_SYNC_SETTINGS;
 
@@ -50,6 +57,13 @@ export const useDewSync = (bookKey: string) => {
     if (!appService || hasUploadedRef.current || uploadingRef.current) return;
     const { settings } = useSettingsStore.getState();
     const dewSync = resolveDewSyncSettings(settings.dewSync);
+    console.log('[DewSync] Resolved settings:', {
+      enabled: dewSync.enabled,
+      hasApiKey: !!dewSync.apiKey,
+      apiUrl: dewSync.apiUrl,
+      syncProgress: dewSync.syncProgress,
+      syncNotes: dewSync.syncNotes,
+    });
     if (!dewSync.enabled || !dewSync.apiKey) return;
 
     const bookData = getBookData(bookKey);
@@ -58,6 +72,8 @@ export const useDewSync = (bookKey: string) => {
     if (!book) return;
 
     const client = new DewSyncClient(dewSync);
+
+    console.log('[DewSync] Starting upload flow for book:', book.title);
 
     const doUpload = async () => {
       // If we already have a dewDocumentId, verify it still exists
@@ -73,9 +89,28 @@ export const useDewSync = (bookKey: string) => {
 
       uploadingRef.current = true;
       try {
+        // Search by title first to avoid duplicates
+        const searchResult = await client.searchDocument(book.title);
+        if (searchResult.success && searchResult.data?.id) {
+          console.log('[DewSync] Found existing document by title:', searchResult.data.id);
+          setConfig(bookKey, { dewDocumentId: searchResult.data.id });
+          hasUploadedRef.current = true;
+          return;
+        }
+
         const { file } = await appService.loadBookContent(book);
+        // Convert NativeFile to a real Blob so FormData works correctly
+        const arrayBuffer = await file.arrayBuffer();
+        const blob = new Blob([arrayBuffer], { type: file.type || 'application/octet-stream' });
+        console.log('[DewSync] Uploading file:', { name: file.name, size: blob.size, type: blob.type });
+
+        if (blob.size === 0) {
+          console.log('[DewSync] Skipping upload: file is empty');
+          return;
+        }
+
         const uploadOpts = bookToUploadOptions(book);
-        const result = await client.uploadDocument(file, uploadOpts);
+        const result = await client.uploadDocument(blob, uploadOpts);
         if (result.success && result.data?.id) {
           setConfig(bookKey, { dewDocumentId: result.data.id });
           hasUploadedRef.current = true;
@@ -110,9 +145,14 @@ export const useDewSync = (bookKey: string) => {
         const update = progressToUpdate(currentConfig.dewDocumentId, book);
         if (!update) return;
 
+        console.log('[DewSync] Syncing progress:', update);
         const result = await client.updateProgress(update);
-        if (!result.success && !result.isNetworkError) {
+        if (result.success) {
+          console.log('[DewSync] Progress synced successfully');
+        } else if (!result.isNetworkError) {
           console.log('[DewSync] Progress sync failed:', result.message);
+        } else {
+          console.log('[DewSync] Progress sync network error:', result.message);
         }
       }, DEW_SYNC_DEBOUNCE_MS),
     [bookKey, getConfig, getBookData],
