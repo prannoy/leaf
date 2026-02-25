@@ -21,6 +21,39 @@ interface DocumentResponse {
   [key: string]: unknown;
 }
 
+export interface DewDocument {
+  id: string;
+  title: string;
+  author: string;
+  mime_type?: string;
+  file_hash?: string;
+  total_pages?: number;
+  current_page?: number;
+  reading_status?: string;
+  source_connector?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DewDocumentListResponse {
+  documents: DewDocument[];
+  total: number;
+}
+
+export interface DewNote {
+  id: string;
+  document_id: string;
+  content: string;
+  page_number?: number;
+  metadata?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DewNotesResponse {
+  notes: DewNote[];
+}
+
 interface UploadOptions {
   title: string;
   author: string;
@@ -39,6 +72,12 @@ interface NoteInput {
   documentId: string;
   content: string;
   pageNumber?: number;
+  metadata?: string;
+}
+
+interface NoteUpdateInput {
+  content?: string;
+  metadata?: string;
 }
 
 export class DewSyncClient {
@@ -140,6 +179,40 @@ export class DewSyncClient {
     }
   }
 
+  async listDocuments(since?: string): Promise<DewResult<DewDocumentListResponse>> {
+    try {
+      const params = new URLSearchParams();
+      if (since) params.set('since', since);
+      const qs = params.toString();
+      const url = `${this.baseUrl}/documents${qs ? `?${qs}` : ''}`;
+
+      const res = await fetch(url, { headers: this.headers });
+      if (!res.ok) {
+        return { success: false, message: `HTTP ${res.status}` };
+      }
+      const json = await res.json();
+      const data = json.data ?? json;
+      return { success: true, data };
+    } catch (e) {
+      return { success: false, message: (e as Error).message, isNetworkError: true };
+    }
+  }
+
+  async downloadFile(documentId: string): Promise<DewResult<Blob>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/documents/${documentId}/file`, {
+        headers: this.headers,
+      });
+      if (!res.ok) {
+        return { success: false, message: `HTTP ${res.status}` };
+      }
+      const blob = await res.blob();
+      return { success: true, data: blob };
+    } catch (e) {
+      return { success: false, message: (e as Error).message, isNetworkError: true };
+    }
+  }
+
   async updateProgress(input: ProgressInput): Promise<DewResult> {
     try {
       const res = await fetch(`${this.baseUrl}/documents/progress`, {
@@ -157,10 +230,53 @@ export class DewSyncClient {
     }
   }
 
-  async addNote(input: NoteInput): Promise<DewResult> {
+  async addNote(input: NoteInput): Promise<DewResult<{ id: string }>> {
     try {
       const res = await fetch(`${this.baseUrl}/documents/notes`, {
         method: 'POST',
+        headers: { ...this.headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        return { success: false, message: `HTTP ${res.status}: ${errText}` };
+      }
+      const json = await res.json();
+      const payload = json.data ?? json;
+      return { success: true, data: { id: payload.id || '' } };
+    } catch (e) {
+      return { success: false, message: (e as Error).message, isNetworkError: true };
+    }
+  }
+
+  async getDocumentNotes(
+    documentId: string,
+    since?: string,
+  ): Promise<DewResult<DewNotesResponse>> {
+    try {
+      const params = new URLSearchParams();
+      if (since) params.set('since', since);
+      const qs = params.toString();
+      const url = `${this.baseUrl}/documents/${documentId}/notes${qs ? `?${qs}` : ''}`;
+
+      const res = await fetch(url, {
+        headers: this.headers,
+      });
+      if (!res.ok) {
+        return { success: false, message: `HTTP ${res.status}` };
+      }
+      const json = await res.json();
+      const data = json.data ?? json;
+      return { success: true, data };
+    } catch (e) {
+      return { success: false, message: (e as Error).message, isNetworkError: true };
+    }
+  }
+
+  async updateNote(noteId: string, input: NoteUpdateInput): Promise<DewResult> {
+    try {
+      const res = await fetch(`${this.baseUrl}/documents/notes/${noteId}`, {
+        method: 'PUT',
         headers: { ...this.headers, 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });

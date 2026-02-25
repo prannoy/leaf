@@ -1,4 +1,5 @@
-import { Book, BookNote } from '@/types/book';
+import { Book, BookFormat, BookNote, BookNoteType, ReadingStatus } from '@/types/book';
+import { DewDocument, DewNote } from './DewSyncClient';
 
 export function bookToUploadOptions(book: Book) {
   return {
@@ -45,4 +46,132 @@ export function noteToContent(note: BookNote): string {
   }
 
   return parts.join('\n');
+}
+
+// --- Reverse mappers (Dew → Leaf) ---
+
+const MIME_TO_FORMAT: Record<string, BookFormat> = {
+  'application/epub+zip': 'EPUB',
+  'application/pdf': 'PDF',
+  'application/x-mobipocket-ebook': 'MOBI',
+  'application/octet-stream': 'EPUB', // default fallback
+};
+
+function dewStatusToReadingStatus(status?: string): ReadingStatus | undefined {
+  if (!status) return undefined;
+  if (status === 'completed') return 'finished';
+  if (status === 'reading') return 'reading';
+  return 'unread';
+}
+
+function guessFormatFromFilename(title: string): BookFormat {
+  const lower = title.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'PDF';
+  if (lower.endsWith('.mobi')) return 'MOBI';
+  if (lower.endsWith('.azw') || lower.endsWith('.azw3')) return 'AZW3';
+  if (lower.endsWith('.fb2') || lower.endsWith('.fbz')) return 'FB2';
+  if (lower.endsWith('.cbz')) return 'CBZ';
+  if (lower.endsWith('.txt')) return 'TXT';
+  return 'EPUB';
+}
+
+export function dewDocumentToBook(doc: DewDocument): Partial<Book> {
+  const format =
+    (doc.mime_type && MIME_TO_FORMAT[doc.mime_type]) || guessFormatFromFilename(doc.title);
+
+  const book: Partial<Book> = {
+    title: doc.title,
+    author: doc.author || '',
+    format,
+    readingStatus: dewStatusToReadingStatus(doc.reading_status),
+    createdAt: new Date(doc.created_at).getTime(),
+    updatedAt: new Date(doc.updated_at).getTime(),
+  };
+
+  if (doc.current_page != null && doc.total_pages != null) {
+    // cc-mem is 0-based, Leaf is 1-based
+    book.progress = [doc.current_page + 1, doc.total_pages];
+  }
+
+  return book;
+}
+
+export interface NoteMetadata {
+  cfi?: string;
+  style?: string;
+  color?: string;
+  type?: string;
+  text?: string;
+  leafNoteId?: string;
+  updatedAt?: number;
+  deletedAt?: number | null;
+}
+
+export function bookNoteToStructuredInput(
+  note: BookNote,
+  documentId: string,
+): { documentId: string; content: string; pageNumber?: number; metadata: string } {
+  const metadata: NoteMetadata = {
+    cfi: note.cfi,
+    style: note.style,
+    color: note.color,
+    type: note.type,
+    text: note.text,
+    leafNoteId: note.id,
+    updatedAt: note.updatedAt,
+    deletedAt: note.deletedAt,
+  };
+
+  const content = noteToContent(note);
+
+  return {
+    documentId,
+    content,
+    metadata: JSON.stringify(metadata),
+  };
+}
+
+export function dewNoteToBookNote(dewNote: DewNote, bookHash: string): BookNote {
+  let metadata: NoteMetadata | null = null;
+  if (dewNote.metadata) {
+    try {
+      metadata = JSON.parse(dewNote.metadata) as NoteMetadata;
+    } catch {
+      // metadata is not valid JSON, treat as external note
+    }
+  }
+
+  if (metadata?.leafNoteId) {
+    // Reconstructing from structured metadata — this note originated from Leaf
+    return {
+      bookHash,
+      id: metadata.leafNoteId,
+      type: (metadata.type as BookNoteType) || 'annotation',
+      cfi: metadata.cfi || '',
+      text: metadata.text,
+      style: metadata.style as BookNote['style'],
+      color: metadata.color as BookNote['color'],
+      note: extractNoteText(dewNote.content),
+      createdAt: new Date(dewNote.created_at).getTime(),
+      updatedAt: metadata.updatedAt || new Date(dewNote.updated_at).getTime(),
+      deletedAt: metadata.deletedAt,
+    };
+  }
+
+  // External note (created outside Leaf) — add as annotation without CFI
+  return {
+    bookHash,
+    id: `dew-${dewNote.id}`,
+    type: 'annotation',
+    cfi: '',
+    text: dewNote.content,
+    note: '',
+    createdAt: new Date(dewNote.created_at).getTime(),
+    updatedAt: new Date(dewNote.updated_at).getTime(),
+  };
+}
+
+function extractNoteText(content: string): string {
+  const match = content.match(/^Note:\s*(.+)$/m);
+  return match?.[1] ?? '';
 }

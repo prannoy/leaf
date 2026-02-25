@@ -1,60 +1,59 @@
 # Dew (cc-mem) Sync Integration
 
-Leaf syncs reading state (progress and notes/annotations) to [cc-mem](https://github.com/prannoyp/cc-mem) (Dew), a local-first personal knowledge/memory system. The integration is **unidirectional** (Leaf -> Dew) and uses cc-mem's REST API directly with no npm dependency.
+Leaf syncs reading state (library, progress, and notes/annotations) to [cc-mem](https://github.com/prannoyp/cc-mem) (Dew), a local-first personal knowledge/memory system. The integration is **bidirectional** and uses cc-mem's REST API directly with no npm dependency.
 
 ## Architecture
 
 ```
-Leaf Reader                         cc-mem (Dew)
-+------------------+                +---------------------------+
-| useDewSync hook  |---HTTP/REST--> | REST API                  |
-| (Annotator.tsx)  |                |                           |
-|                  |  search -----> | POST /documents/search    |
-|  book opened     |  upload -----> | POST /documents/upload    |
-|  progress change |  progress ---> | POST /documents/progress  |
-|  note created    |  note -------> | POST /documents/notes     |
-|                  |  get --------> | GET  /documents/:id       |
-+------------------+                +---------------------------+
+Leaf Instance A (web)                cc-mem (Dew)               Leaf Instance B (iOS)
++------------------+                +---------------+           +------------------+
+| useDewLibrarySync|--push books--> |               | <--pull---| useDewLibrarySync|
+| useDewSync       |--push progress>|  REST API     | <--pull---| useDewSync       |
+|                  |--push notes--> |  + SQLite     | <--pull---|                  |
+|                  |<--pull books-- |  + file store  |--push--> |                  |
+|                  |<--pull progress|               |--push--> |                  |
+|                  |<--pull notes-- |               |--push--> |                  |
++------------------+                +---------------+           +------------------+
 ```
 
 ## API Endpoints Used
 
-All endpoints are existing cc-mem APIs (no changes to cc-mem required except adding `LEAF = 'leaf'` to `SourceConnector` enum and CORS headers).
+| Endpoint | Method | Purpose | Direction |
+|---|---|---|---|
+| `/api/v1/documents` | GET | List documents (with `?since=` incremental sync) | Pull |
+| `/api/v1/documents/:id` | GET | Get document details + progress | Pull |
+| `/api/v1/documents/:id/file` | GET | Download book file | Pull |
+| `/api/v1/documents/:id/notes` | GET | Get document notes (with `?since=`) | Pull |
+| `/api/v1/documents/search` | POST | Find existing document by title (dedup) | Push |
+| `/api/v1/documents/upload` | POST | Multipart upload of book file + metadata | Push |
+| `/api/v1/documents/progress` | POST | Update reading progress | Push |
+| `/api/v1/documents/notes` | POST | Add a note/annotation (with metadata) | Push |
+| `/api/v1/documents/notes/:id` | PUT | Update existing note | Push |
+| `/api/v1/health` | GET | Health check | - |
 
-| Endpoint | Method | Purpose |
-|---|---|---|
-| `/api/v1/documents/search` | POST | Find existing document by title (dedup) |
-| `/api/v1/documents/upload` | POST | Multipart upload of book file + metadata |
-| `/api/v1/documents/progress` | POST | Update reading progress |
-| `/api/v1/documents/notes` | POST | Add a note/annotation |
-| `/api/v1/documents/:id` | GET | Verify a document still exists |
-| `/api/v1/health` | GET | Health check |
+## Files
 
-## Files Changed
-
-### New Files
-
-| File | Purpose |
-|---|---|
-| `src/services/dewsync/DewSyncClient.ts` | HTTP client for cc-mem API |
-| `src/services/dewsync/mappers.ts` | Data transformation (Leaf types -> cc-mem types) |
-| `src/services/dewsync/index.ts` | Barrel export |
-| `src/app/reader/hooks/useDewSync.ts` | React hook orchestrating upload, progress, and notes sync |
-
-### Modified Files
-
-| File | Change |
-|---|---|
-| `src/types/settings.ts` | Added `DewSyncSettings` interface and `dewSync` field to `SystemSettings` |
-| `src/types/book.ts` | Added `dewDocumentId` and `dewSyncedNoteIds` fields to `BookConfig` |
-| `src/services/constants.ts` | Added `DEFAULT_DEW_SYNC_SETTINGS` |
-| `src/app/reader/components/annotator/Annotator.tsx` | Wired `useDewSync(bookKey)` alongside existing sync hooks |
-
-### Configuration Files
+### DewSync Service (`src/services/dewsync/`)
 
 | File | Purpose |
 |---|---|
-| `.env.local` (gitignored) | `NEXT_PUBLIC_DEW_API_KEY` and `NEXT_PUBLIC_DEW_API_URL` |
+| `DewSyncClient.ts` | HTTP client for cc-mem API (all endpoints) |
+| `mappers.ts` | Bidirectional data transformation (Leaf <-> cc-mem types) |
+| `index.ts` | Barrel export |
+
+### Hooks
+
+| File | Purpose |
+|---|---|
+| `src/app/reader/hooks/useDewSync.ts` | Per-book sync: upload on open, bidirectional progress + notes |
+| `src/app/library/hooks/useDewLibrarySync.ts` | Library-level sync: pull/push book list + file download |
+
+### Types
+
+| File | Fields |
+|---|---|
+| `src/types/settings.ts` | `DewSyncSettings.syncLibrary`, `DewSyncSettings.lastLibrarySyncAt` |
+| `src/types/book.ts` | `BookConfig.dewDocumentId`, `dewSyncedNoteIds`, `dewLastProgressSyncAt`, `dewLastNotesSyncAt` |
 
 ## Configuration
 
@@ -71,76 +70,78 @@ When `NEXT_PUBLIC_DEW_API_KEY` is set and no API key exists in the settings stor
 
 ### Via Settings Store (future)
 
-The `DewSyncSettings` interface supports full configuration:
-
 ```typescript
 interface DewSyncSettings {
   enabled: boolean;
-  apiUrl: string;      // default: 'http://localhost:8080'
-  apiKey: string;      // Bearer token
-  syncProgress: boolean;
-  syncNotes: boolean;
+  apiUrl: string;           // default: 'http://localhost:8080'
+  apiKey: string;           // Bearer token
+  syncProgress: boolean;    // default: true
+  syncNotes: boolean;       // default: true
+  syncLibrary: boolean;     // default: true
+  lastLibrarySyncAt: string; // ISO8601 timestamp
 }
 ```
 
-A settings UI dialog (following the `ReadwiseSettings.tsx` pattern) can be added later.
-
 ## How It Works
 
-### 1. Upload on First Open
+### Phase 1: Library Sync (`useDewLibrarySync`)
 
-When a book is opened in the reader:
+**Pull flow (Dew -> Leaf):**
+1. `client.listDocuments(lastLibrarySyncAt)` to get changed documents
+2. For each document:
+   - Search by title+author in local library -> skip if found
+   - Truly new -> `client.downloadFile(id)` -> `appService.importBook()` -> add to library
+3. Update `lastLibrarySyncAt` in settings
 
-1. Check if `dewDocumentId` is already stored in the book's config
-2. If yes, verify it still exists via `GET /documents/:id`
-3. If no stored ID, **search by title** via `POST /documents/search` to find an existing document (prevents duplicates across platforms)
-4. If no document found, upload the book file via `POST /documents/upload` with `sourceConnector: 'leaf'`
-5. Store the returned document ID in `BookConfig.dewDocumentId`
+**Push flow (Leaf -> Dew):**
+1. For each book: search by title on server
+2. If not found: `appService.loadBookContent()` -> `client.uploadDocument()`
 
-The file is converted from Tauri's `NativeFile` to a standard `Blob` via `arrayBuffer()` before upload, which ensures `FormData` works correctly on all platforms (web, macOS, iOS).
+**Polling:** Every 60 seconds
 
-### 2. Progress Sync (debounced, 5s)
+### Phase 2: Bidirectional Progress Sync (`useDewSync`)
 
-When `progress.location` changes in the reader:
+**Push (Leaf -> Dew):** Debounced 5s on `progress.location` change (existing behavior).
 
-- Maps Leaf's `book.progress` (1-based `[currentPage, totalPages]`) to cc-mem's `{ documentId, currentPage, status }`
-- Leaf's `readingStatus: 'finished'` maps to cc-mem's `status: 'completed'`
-- Debounced at 5 seconds to avoid excessive API calls during rapid page turns
+**Pull (Dew -> Leaf) on book open:**
+1. `client.getDocument(dewDocumentId)` to get remote state
+2. Compare remote `updated_at` vs local `dewLastProgressSyncAt`
+3. "Furthest progress wins": if remote is newer AND remote page is further ahead, apply remote progress
+4. Update `dewLastProgressSyncAt`
 
-### 3. Notes Sync (debounced, 5s)
+### Phase 3: Bidirectional Notes Sync (`useDewSync`)
 
-When `config.booknotes` changes:
+**Push (Leaf -> Dew):** Debounced 5s on `config.booknotes` change. Now sends structured metadata:
+```json
+{ "cfi": "...", "style": "highlight", "color": "yellow", "type": "annotation",
+  "text": "highlighted text", "leafNoteId": "...", "updatedAt": 1234 }
+```
 
-- Filters to `annotation` and `excerpt` types with non-empty `text` and no `deletedAt`
-- Skips notes already tracked in `dewSyncedNoteIds`
-- Builds rich content string:
-  ```
-  > [highlighted text]
-  Note: [user's annotation]
-  [style:highlight, color:yellow, type:annotation]
-  ```
-- Calls `POST /documents/notes` for each new note
-- Tracks synced note IDs in `BookConfig.dewSyncedNoteIds`
+**Pull (Dew -> Leaf) on book open:**
+1. `client.getDocumentNotes(dewDocumentId, dewLastNotesSyncAt)`
+2. For each remote note with `metadata.leafNoteId` -> LWW merge with local
+3. Notes without metadata (created externally) -> add as annotations without CFI
+4. Soft-delete: `deletedAt` set -> treat as deleted; local un-deletion wins if newer
+5. Update `dewLastNotesSyncAt`
 
-### 4. Error Handling
+### Conflict Resolution
 
-- **Network errors**: Silently ignored (console.log only, no user-facing toasts)
-- **Document not found**: Clears `dewDocumentId` and re-uploads on next open
-- **Empty file**: Skips upload with a console warning
-- **Cleanup**: Flushes pending debounced calls on component unmount
+- **Library:** Dew is source of truth for *what exists*; no deletion sync (avoids accidental data loss)
+- **Progress:** "Furthest progress wins" heuristic
+- **Notes:** Last-Writer-Wins (LWW) on `updatedAt` per individual note
+- **Identity bridge:** `BookConfig.dewDocumentId` <-> `documents.id`
 
 ## Data Model Mapping
 
-| Leaf | cc-mem | Notes |
-|---|---|---|
-| `book.title` / `book.author` | upload `title` / `author` | Direct mapping |
-| `book.format` (EPUB/PDF/...) | inferred from file | cc-mem computes hash + mime |
-| `book.progress[0]` (1-based) | `currentPage` | Subtract 1 for 0-based |
-| `book.progress[1]` | `totalPages` | Sent at upload time |
-| `book.readingStatus` | `reading_status` | `'finished'` -> `'completed'` |
-| `BookNote.text` | `document_notes.content` | Enriched with metadata |
-| `BookNote.note` | embedded in content | User's annotation text |
-| `BookNote.style/color` | embedded in content | Preserved as metadata |
+| Leaf | cc-mem | Direction | Notes |
+|---|---|---|---|
+| `book.title` / `book.author` | `title` / `author` | Bidi | Direct mapping |
+| `book.format` (EPUB/PDF/...) | `mime_type` | Bidi | MIME <-> BookFormat |
+| `book.progress[0]` (1-based) | `current_page` (0-based) | Bidi | +/- 1 conversion |
+| `book.progress[1]` | `total_pages` | Bidi | Direct |
+| `book.readingStatus` | `reading_status` | Bidi | `'finished'` <-> `'completed'` |
+| `BookNote.*` | `document_notes.content` + `metadata` | Bidi | Structured JSON metadata |
+| `BookConfig.dewDocumentId` | `documents.id` | Bidi | Cross-reference UUID |
 
 ## Testing
 
@@ -151,42 +152,50 @@ cd apps/readest-app
 pnpm dev-web
 ```
 
-Open a book -> check browser console for `[DewSync]` logs.
+Open a book -> check browser console for `[DewSync]` and `[DewLibrarySync]` logs.
 
-### iOS Simulator
+### Cross-Platform Sync Verification
 
-```bash
-cd apps/readest-app
-NEXT_PUBLIC_APP_PLATFORM=tauri pnpm tauri ios dev "iPhone 16"
-```
-
-Use Safari Web Inspector (Develop -> Simulator -> localhost) to see `[DewSync]` console logs.
-
-Note: Xcode 16.4 requires adding `-Wl,-U,_swift_coroFrameAlloc` to `OTHER_LDFLAGS` in the generated `src-tauri/gen/apple/Readest.xcodeproj/project.pbxproj` due to a Swift 6.2 compatibility issue.
+1. Start cc-mem locally, configure Leaf `.env.local` with API key/URL
+2. Open Leaf on web -> add a book -> verify it uploads to Dew
+3. Open Leaf on iOS -> verify the book appears in library (downloaded from Dew)
+4. Read on web (advance pages) -> reopen on iOS -> verify progress is further
+5. Create a highlight on iOS -> reopen on web -> verify highlight appears
 
 ### Verify in cc-mem
 
 ```bash
-# Search for uploaded documents
+# List all documents
 curl -H "Authorization: Bearer $DEW_API_KEY" \
-  "$DEW_API_URL/api/v1/documents/search" \
-  -X POST -H "Content-Type: application/json" \
-  -d '{"query": "BOOK_TITLE"}'
+  "$DEW_API_URL/api/v1/documents"
 
-# Check a specific document's progress
+# List documents updated since a date
 curl -H "Authorization: Bearer $DEW_API_KEY" \
-  "$DEW_API_URL/api/v1/documents/DOCUMENT_ID"
+  "$DEW_API_URL/api/v1/documents?since=2024-01-01T00:00:00Z"
+
+# Download a book file
+curl -H "Authorization: Bearer $DEW_API_KEY" \
+  "$DEW_API_URL/api/v1/documents/DOCUMENT_ID/file" -o book.epub
+
+# Get notes for a document
+curl -H "Authorization: Bearer $DEW_API_KEY" \
+  "$DEW_API_URL/api/v1/documents/DOCUMENT_ID/notes"
 ```
 
-## Commits
+## cc-mem Requirements
 
-1. `14b4ec4e` - feat: add cc-mem (Dew) sync integration for reading state
-2. `e0bb33ed` - fix(dewsync): env var fallback for settings and unwrap cc-mem response
-3. `6f29feec` - fix(dewsync): fix env var inlining, dedup, and NativeFile upload
+The following cc-mem endpoints/features are needed for full bidirectional sync:
+
+1. `GET /api/v1/documents` - Structured document list with `?since=` filtering
+2. `GET /api/v1/documents/:id/file` - File download
+3. `GET /api/v1/documents/:id/notes` - Notes list with `?since=` filtering
+4. `PUT /api/v1/documents/notes/:id` - Note update
+5. `metadata` column on `document_notes` table - JSON field for Leaf-specific data
+6. `updated_at` column on `document_notes` table - For incremental sync
+7. EPUB mime type support in upload handler (`application/epub+zip`)
 
 ## Future Work
 
 - Settings UI dialog (following `ReadwiseSettings.tsx` pattern)
-- Bulk library sync (upload all books at once)
-- Bidirectional sync (pull notes from cc-mem back to Leaf)
+- Deletion sync (currently no deletion propagation to avoid data loss)
 - Search cc-mem memories from within Leaf

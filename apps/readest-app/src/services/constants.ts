@@ -80,6 +80,8 @@ export const DEFAULT_DEW_SYNC_SETTINGS = {
   apiKey: '',
   syncProgress: true,
   syncNotes: true,
+  syncLibrary: true,
+  lastLibrarySyncAt: '',
 } as DewSyncSettings;
 
 export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
