@@ -78,10 +78,8 @@ export const DEFAULT_DEW_SYNC_SETTINGS = {
   enabled: false,
   apiUrl: 'http://localhost:8080',
   apiKey: '',
-  syncProgress: true,
-  syncNotes: true,
-  syncLibrary: true,
-  lastLibrarySyncAt: '',
+  syncHighlights: true,
+  syncCompletions: true,
 } as DewSyncSettings;
 
 export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {

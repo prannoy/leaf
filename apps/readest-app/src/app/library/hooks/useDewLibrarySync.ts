@@ -2,13 +2,10 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useBookDataStore } from '@/store/bookDataStore';
 import { DewSyncSettings } from '@/types/settings';
 import { DEFAULT_DEW_SYNC_SETTINGS } from '@/services/constants';
-import { DewSyncClient, DewDocument } from '@/services/dewsync/DewSyncClient';
-import { bookToUploadOptions, dewDocumentToBook } from '@/services/dewsync/mappers';
-import { Book } from '@/types/book';
-
-const DEW_LIBRARY_SYNC_INTERVAL_MS = 60_000;
+import { DewMemoryClient } from '@/services/dewsync/DewSyncClient';
 
 // Next.js inlines NEXT_PUBLIC_* only with dot notation — bracket notation won't be replaced.
 // @ts-expect-error TS4111: index signature access required, but dot notation needed for Next.js inlining
@@ -22,8 +19,6 @@ function resolveDewSyncSettings(stored: DewSyncSettings | undefined): DewSyncSet
   const envApiKey = DEW_ENV_API_KEY ?? '';
   const envApiUrl = DEW_ENV_API_URL ?? '';
 
-  // Merge stored on top of defaults to fill in any missing fields (e.g. syncLibrary
-  // added after settings were first saved)
   const base = { ...DEFAULT_DEW_SYNC_SETTINGS, ...(stored ?? {}) };
 
   if (envApiKey && !base.apiKey) {
@@ -39,165 +34,31 @@ function resolveDewSyncSettings(stored: DewSyncSettings | undefined): DewSyncSet
 }
 
 export const useDewLibrarySync = () => {
-  const { appService, envConfig } = useEnv();
+  const { appService } = useEnv();
   const { library, libraryLoaded } = useLibraryStore();
-  const syncingRef = useRef(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { getConfig, setConfig } = useBookDataStore();
+  const indexingRef = useRef(false);
 
-  const pullLibrary = useCallback(async () => {
-    if (!appService || syncingRef.current) return;
-
-    const { settings } = useSettingsStore.getState();
-    const dewSync = resolveDewSyncSettings(settings.dewSync);
-    if (!dewSync.enabled || !dewSync.apiKey || !dewSync.syncLibrary) return;
-
-    syncingRef.current = true;
-    try {
-      const client = new DewSyncClient(dewSync);
-      const since = dewSync.lastLibrarySyncAt || undefined;
-
-      console.log('[DewLibrarySync] Pulling documents since:', since || 'beginning');
-      const result = await client.listDocuments(since);
-      if (!result.success || !result.data) {
-        if (!result.isNetworkError) {
-          console.log('[DewLibrarySync] Pull failed:', result.message);
-        }
-        return;
-      }
-
-      const documents = result.data;
-      if (documents.length === 0) {
-        console.log('[DewLibrarySync] No new documents');
-        return;
-      }
-
-      console.log('[DewLibrarySync] Got', documents.length, 'documents');
-      const currentLibrary = useLibraryStore.getState().library;
-
-      for (const doc of documents) {
-        await processRemoteDocument(client, doc, currentLibrary);
-      }
-
-      // Update lastLibrarySyncAt
-      const newSettings = {
-        ...settings,
-        dewSync: {
-          ...dewSync,
-          lastLibrarySyncAt: new Date().toISOString(),
-        },
-      };
-      useSettingsStore.getState().setSettings(newSettings);
-      useSettingsStore.getState().saveSettings(envConfig, newSettings);
-    } catch (e) {
-      console.log('[DewLibrarySync] Pull error:', e);
-    } finally {
-      syncingRef.current = false;
-    }
-  }, [appService, envConfig]);
-
-  const processRemoteDocument = useCallback(
-    async (client: DewSyncClient, doc: DewDocument, currentLibrary: Book[]) => {
-      if (!appService) return;
-
-      // 1. Match by dewDocumentId in existing library
-      // Search by title+author in local library
-      const normalizedTitle = doc.title.toLowerCase().trim();
-      const normalizedAuthor = (doc.author || '').toLowerCase().trim();
-      const existingByMeta = currentLibrary.find((book) => {
-        return (
-          book.title.toLowerCase().trim() === normalizedTitle &&
-          (book.author || '').toLowerCase().trim() === normalizedAuthor &&
-          !book.deletedAt
-        );
-      });
-
-      if (existingByMeta) {
-        console.log('[DewLibrarySync] Found local match by title+author:', doc.title);
-        // Book already exists locally — no download needed
-        return;
-      }
-
-      // 3. Truly new document — download file and import
-      console.log('[DewLibrarySync] Downloading new document:', doc.title);
-      const fileResult = await client.downloadFile(doc.id);
-      if (!fileResult.success || !fileResult.data) {
-        console.log('[DewLibrarySync] Download failed for', doc.title, ':', fileResult.message);
-        return;
-      }
-
-      const blob = fileResult.data;
-      if (blob.size === 0) {
-        console.log('[DewLibrarySync] Skipping empty file:', doc.title);
-        return;
-      }
-
-      // Determine filename from document
-      const partialBook = dewDocumentToBook(doc);
-      const ext = partialBook.format?.toLowerCase() || 'epub';
-      const filename = `${doc.title}.${ext}`;
-
-      // Create a File object from the blob
-      const file = new File([blob], filename, {
-        type: blob.type || 'application/octet-stream',
-      });
-
-      try {
-        const updatedLibrary = useLibraryStore.getState().library;
-        const importedBook = await appService.importBook(file, updatedLibrary);
-        if (importedBook) {
-          console.log('[DewLibrarySync] Imported book:', importedBook.title);
-          // Merge Dew metadata into imported book
-          if (partialBook.readingStatus) {
-            importedBook.readingStatus = partialBook.readingStatus;
-          }
-          if (partialBook.progress) {
-            importedBook.progress = partialBook.progress;
-          }
-          importedBook.updatedAt = Date.now();
-
-          const finalLibrary = useLibraryStore.getState().library;
-          // Update the library with the imported book
-          const bookIdx = finalLibrary.findIndex((b) => b.hash === importedBook.hash);
-          if (bookIdx !== -1) {
-            finalLibrary[bookIdx] = importedBook;
-          } else {
-            finalLibrary.push(importedBook);
-          }
-          useLibraryStore.getState().setLibrary([...finalLibrary]);
-          await appService.saveLibraryBooks(finalLibrary);
-        }
-      } catch (e) {
-        console.log('[DewLibrarySync] Import error for', doc.title, ':', e);
-      }
-    },
-    [appService],
-  );
-
-  const pushLibrary = useCallback(async () => {
-    if (!appService || syncingRef.current) return;
+  const indexLibraryBooks = useCallback(async () => {
+    if (!appService || indexingRef.current) return;
 
     const { settings } = useSettingsStore.getState();
     const dewSync = resolveDewSyncSettings(settings.dewSync);
-    if (!dewSync.enabled || !dewSync.apiKey || !dewSync.syncLibrary) return;
+    if (!dewSync.enabled || !dewSync.apiKey) return;
 
-    syncingRef.current = true;
+    indexingRef.current = true;
     try {
-      const client = new DewSyncClient(dewSync);
+      const client = new DewMemoryClient(dewSync);
       const currentLibrary = useLibraryStore.getState().library;
 
-      // Push books that haven't been uploaded to Dew yet.
-      // Since dewDocumentId is in BookConfig (per-book reader config), we search by title
-      // to check if the document already exists on the server.
       for (const book of currentLibrary) {
         if (book.deletedAt) continue;
 
-        // Search by title to see if it already exists
-        const searchResult = await client.searchDocument(book.title);
-        if (searchResult.success && searchResult.data?.id) {
-          continue; // Already on server
-        }
+        // Check if already indexed via BookConfig
+        const bookConfig = getConfig(book.hash);
+        if (bookConfig?.dewContentIndexed) continue;
 
-        console.log('[DewLibrarySync] Pushing book:', book.title);
+        console.log('[DewLibrarySync] Uploading for content indexing:', book.title);
         try {
           const { file } = await appService.loadBookContent(book);
           const arrayBuffer = await file.arrayBuffer();
@@ -208,57 +69,37 @@ export const useDewLibrarySync = () => {
             continue;
           }
 
-          const uploadOpts = bookToUploadOptions(book);
-          const result = await client.uploadDocument(blob, uploadOpts);
-          if (result.success && result.data?.id) {
-            console.log('[DewLibrarySync] Pushed book:', book.title, 'id:', result.data.id);
+          const result = await client.uploadContent(blob, {
+            filename: book.sourceTitle || `${book.title}.${book.format.toLowerCase()}`,
+            title: book.title,
+            author: book.author,
+          });
+
+          if (result.success) {
+            console.log('[DewLibrarySync] Content indexed:', book.title);
+            setConfig(book.hash, { dewContentIndexed: true });
           } else if (!result.isNetworkError) {
-            console.log('[DewLibrarySync] Push failed for', book.title, ':', result.message);
+            console.log('[DewLibrarySync] Index failed for', book.title, ':', result.message);
           }
         } catch (e) {
-          console.log('[DewLibrarySync] Push error for', book.title, ':', e);
+          console.log('[DewLibrarySync] Index error for', book.title, ':', e);
         }
       }
     } finally {
-      syncingRef.current = false;
+      indexingRef.current = false;
     }
-  }, [appService]);
+  }, [appService, getConfig, setConfig]);
 
-  // Pull on mount + periodic polling
+  // Index new books when library changes
   useEffect(() => {
     if (!appService || !libraryLoaded) return;
 
     const { settings } = useSettingsStore.getState();
     const dewSync = resolveDewSyncSettings(settings.dewSync);
-    if (!dewSync.enabled || !dewSync.apiKey || !dewSync.syncLibrary) return;
+    if (!dewSync.enabled || !dewSync.apiKey) return;
 
-    // Initial pull
-    pullLibrary();
-
-    // Set up polling
-    intervalRef.current = setInterval(() => {
-      pullLibrary();
-    }, DEW_LIBRARY_SYNC_INTERVAL_MS);
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [appService, libraryLoaded, pullLibrary]);
-
-  // Push new books when library changes (debounced by the polling interval)
-  useEffect(() => {
-    if (!appService || !libraryLoaded) return;
-
-    const { settings } = useSettingsStore.getState();
-    const dewSync = resolveDewSyncSettings(settings.dewSync);
-    if (!dewSync.enabled || !dewSync.apiKey || !dewSync.syncLibrary) return;
-
-    // Only push if we have books, to avoid push on initial load before pull
     if (library.length > 0) {
-      pushLibrary();
+      indexLibraryBooks();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [library.length]);

@@ -7,71 +7,30 @@ interface DewResult<T = unknown> {
   message?: string;
 }
 
-interface UploadResponse {
-  success: boolean;
+export interface MemoryInput {
+  content: string;
+  tags: string[];
+  sourceConnector: string;
+}
+
+interface MemoryResponse {
   id: string;
+}
+
+interface ContentUploadResponse {
+  success: boolean;
+  id?: string;
   message?: string;
   duplicate?: boolean;
 }
 
-interface DocumentResponse {
-  id: string;
+interface ContentUploadOptions {
+  filename: string;
   title?: string;
   author?: string;
-  [key: string]: unknown;
 }
 
-export interface DewDocument {
-  id: string;
-  title: string;
-  author: string;
-  mimeType?: string;
-  fileHash?: string;
-  totalPages?: number;
-  currentPage?: number;
-  readingStatus?: string;
-  sourceConnector?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface DewNote {
-  id: string;
-  documentId: string;
-  content: string;
-  pageNumber?: number;
-  metadata?: Record<string, unknown> | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface UploadOptions {
-  title: string;
-  author: string;
-  totalPages?: number;
-  filename: string;
-  sourceConnector: string;
-}
-
-interface ProgressInput {
-  documentId: string;
-  currentPage: number;
-  totalPages?: number;
-  status?: string;
-}
-
-interface NoteInput {
-  documentId: string;
-  content: string;
-  pageNumber?: number;
-}
-
-interface NoteUpdateInput {
-  content?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export class DewSyncClient {
+export class DewMemoryClient {
   private config: DewSyncSettings;
 
   constructor(config: DewSyncSettings) {
@@ -97,18 +56,38 @@ export class DewSyncClient {
     }
   }
 
-  async uploadDocument(file: Blob, options: UploadOptions): Promise<DewResult<UploadResponse>> {
+  async pushMemory(input: MemoryInput): Promise<DewResult<MemoryResponse>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/memories`, {
+        method: 'POST',
+        headers: { ...this.headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        return { success: false, message: `HTTP ${res.status}: ${errText}` };
+      }
+
+      const json = await res.json();
+      const payload = json.data ?? json;
+      return { success: true, data: { id: payload.id || '' } };
+    } catch (e) {
+      return { success: false, message: (e as Error).message, isNetworkError: true };
+    }
+  }
+
+  async uploadContent(
+    file: Blob,
+    options: ContentUploadOptions,
+  ): Promise<DewResult<ContentUploadResponse>> {
     try {
       const formData = new FormData();
       formData.append('file', file, options.filename);
-      formData.append('title', options.title);
-      formData.append('author', options.author);
-      formData.append('sourceConnector', options.sourceConnector);
-      if (options.totalPages != null) {
-        formData.append('totalPages', String(options.totalPages));
-      }
+      if (options.title) formData.append('title', options.title);
+      if (options.author) formData.append('author', options.author);
 
-      const res = await fetch(`${this.baseUrl}/documents/upload`, {
+      const res = await fetch(`${this.baseUrl}/content/upload`, {
         method: 'POST',
         headers: this.headers,
         body: formData,
@@ -120,160 +99,8 @@ export class DewSyncClient {
       }
 
       const json = await res.json();
-      // cc-mem wraps responses as { ok, data: { success, id, ... } }
       const payload = json.data ?? json;
-      const docId = payload.id || payload.documentId;
-      if (docId) {
-        return { success: true, data: { ...payload, id: docId } };
-      }
-      return { success: false, message: `No document ID in response: ${JSON.stringify(json)}` };
-    } catch (e) {
-      return { success: false, message: (e as Error).message, isNetworkError: true };
-    }
-  }
-
-  async searchDocument(query: string): Promise<DewResult<{ id: string } | null>> {
-    try {
-      const res = await fetch(`${this.baseUrl}/documents/search`, {
-        method: 'POST',
-        headers: { ...this.headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query }),
-      });
-      if (!res.ok) {
-        return { success: false, message: `HTTP ${res.status}` };
-      }
-      const json = await res.json();
-      const data = json.data ?? json;
-      if (data.count > 0 && data.formatted) {
-        // Parse first document ID from formatted response: ... (ID: uuid)
-        const match = data.formatted.match(/\(ID:\s*([0-9a-f-]+)\)/);
-        if (match) {
-          return { success: true, data: { id: match[1] } };
-        }
-      }
-      return { success: true, data: null };
-    } catch (e) {
-      return { success: false, message: (e as Error).message, isNetworkError: true };
-    }
-  }
-
-  async getDocument(id: string): Promise<DewResult<DocumentResponse>> {
-    try {
-      const res = await fetch(`${this.baseUrl}/documents/${id}`, { headers: this.headers });
-      if (!res.ok) {
-        return { success: false, message: `HTTP ${res.status}` };
-      }
-      const json = await res.json();
-      const data = (json.data ?? json) as DocumentResponse;
-      return { success: true, data };
-    } catch (e) {
-      return { success: false, message: (e as Error).message, isNetworkError: true };
-    }
-  }
-
-  async listDocuments(since?: string): Promise<DewResult<DewDocument[]>> {
-    try {
-      const params = new URLSearchParams();
-      if (since) params.set('since', since);
-      const qs = params.toString();
-      const url = `${this.baseUrl}/documents${qs ? `?${qs}` : ''}`;
-
-      const res = await fetch(url, { headers: this.headers });
-      if (!res.ok) {
-        return { success: false, message: `HTTP ${res.status}` };
-      }
-      const json = await res.json();
-      const data = (json.data ?? json) as DewDocument[];
-      return { success: true, data };
-    } catch (e) {
-      return { success: false, message: (e as Error).message, isNetworkError: true };
-    }
-  }
-
-  async downloadFile(documentId: string): Promise<DewResult<Blob>> {
-    try {
-      const res = await fetch(`${this.baseUrl}/documents/${documentId}/file`, {
-        headers: this.headers,
-      });
-      if (!res.ok) {
-        return { success: false, message: `HTTP ${res.status}` };
-      }
-      const blob = await res.blob();
-      return { success: true, data: blob };
-    } catch (e) {
-      return { success: false, message: (e as Error).message, isNetworkError: true };
-    }
-  }
-
-  async updateProgress(input: ProgressInput): Promise<DewResult> {
-    try {
-      const res = await fetch(`${this.baseUrl}/documents/progress`, {
-        method: 'POST',
-        headers: { ...this.headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
-      });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        return { success: false, message: `HTTP ${res.status}: ${errText}` };
-      }
-      return { success: true };
-    } catch (e) {
-      return { success: false, message: (e as Error).message, isNetworkError: true };
-    }
-  }
-
-  async addNote(input: NoteInput): Promise<DewResult<{ id: string }>> {
-    try {
-      const res = await fetch(`${this.baseUrl}/documents/notes`, {
-        method: 'POST',
-        headers: { ...this.headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
-      });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        return { success: false, message: `HTTP ${res.status}: ${errText}` };
-      }
-      const json = await res.json();
-      const payload = json.data ?? json;
-      return { success: true, data: { id: payload.id || '' } };
-    } catch (e) {
-      return { success: false, message: (e as Error).message, isNetworkError: true };
-    }
-  }
-
-  async getDocumentNotes(documentId: string, since?: string): Promise<DewResult<DewNote[]>> {
-    try {
-      const params = new URLSearchParams();
-      if (since) params.set('since', since);
-      const qs = params.toString();
-      const url = `${this.baseUrl}/documents/${documentId}/notes${qs ? `?${qs}` : ''}`;
-
-      const res = await fetch(url, {
-        headers: this.headers,
-      });
-      if (!res.ok) {
-        return { success: false, message: `HTTP ${res.status}` };
-      }
-      const json = await res.json();
-      const data = (json.data ?? json) as DewNote[];
-      return { success: true, data };
-    } catch (e) {
-      return { success: false, message: (e as Error).message, isNetworkError: true };
-    }
-  }
-
-  async updateNote(noteId: string, input: NoteUpdateInput): Promise<DewResult> {
-    try {
-      const res = await fetch(`${this.baseUrl}/documents/notes/${noteId}`, {
-        method: 'PUT',
-        headers: { ...this.headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
-      });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        return { success: false, message: `HTTP ${res.status}: ${errText}` };
-      }
-      return { success: true };
+      return { success: true, data: payload };
     } catch (e) {
       return { success: false, message: (e as Error).message, isNetworkError: true };
     }

@@ -74,10 +74,8 @@ export interface DewSyncSettings {
   enabled: boolean;
   apiUrl: string;
   apiKey: string;
-  syncProgress: boolean;
-  syncNotes: boolean;
-  syncLibrary: boolean;
-  lastLibrarySyncAt: string;
+  syncHighlights: boolean;
+  syncCompletions: boolean;
 }
 
 export interface SystemSettings {

@@ -352,10 +352,8 @@ export interface BookConfig {
   lastSyncedAtConfig?: number;
   lastSyncedAtNotes?: number;
 
-  dewDocumentId?: string;
-  dewSyncedNoteIds?: Record<string, string>;
-  dewLastProgressSyncAt?: number;
-  dewLastNotesSyncAt?: number;
+  dewSyncedMemoryIds?: Record<string, string>;
+  dewContentIndexed?: boolean;
 
   updatedAt: number;
 }

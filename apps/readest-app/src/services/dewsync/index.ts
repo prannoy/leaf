@@ -1,11 +1,3 @@
-export { DewSyncClient } from './DewSyncClient';
-export type { DewDocument, DewNote } from './DewSyncClient';
-export {
-  bookToUploadOptions,
-  progressToUpdate,
-  noteToContent,
-  dewDocumentToBook,
-  bookNoteToStructuredInput,
-  dewNoteToBookNote,
-} from './mappers';
-export type { NoteMetadata } from './mappers';
+export { DewMemoryClient } from './DewSyncClient';
+export type { MemoryInput } from './DewSyncClient';
+export { highlightToMemory, annotationToMemory, bookCompletionToMemory } from './mappers';
