@@ -22,7 +22,7 @@ const DEW_ENV_API_KEY = process.env.NEXT_PUBLIC_DEW_API_KEY;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const DEW_ENV_API_URL = process.env.NEXT_PUBLIC_DEW_API_URL;
 
-function resolveDewSyncSettings(stored: DewSyncSettings | undefined): DewSyncSettings {
+export function resolveDewSyncSettings(stored: DewSyncSettings | undefined): DewSyncSettings {
   const envApiKey = DEW_ENV_API_KEY ?? '';
   const envApiUrl = DEW_ENV_API_URL ?? '';
 

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { BiMoon, BiSun } from 'react-icons/bi';
 import { TbSunMoon } from 'react-icons/tb';
 import { MdZoomOut, MdZoomIn, MdCheck } from 'react-icons/md';
-import { MdSync, MdSyncProblem } from 'react-icons/md';
+import { MdSync, MdSyncProblem, MdOutlineSend } from 'react-icons/md';
 import { IoMdExpand } from 'react-icons/io';
 import { TbArrowAutofitWidth } from 'react-icons/tb';
 import { TbColumns1, TbColumns2 } from 'react-icons/tb';
@@ -17,6 +17,7 @@ import { useThemeStore } from '@/store/themeStore';
 import { useReaderStore } from '@/store/readerStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useLibraryStore } from '@/store/libraryStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getStyles } from '@/utils/style';
 import { navigateToLogin } from '@/utils/nav';
@@ -25,6 +26,8 @@ import { getMaxInlineSize } from '@/utils/config';
 import { formatLocaleDateTime } from '@/utils/book';
 import { saveViewSettings } from '@/helpers/settings';
 import { tauriHandleToggleFullScreen } from '@/utils/window';
+import { DewMemoryClient, readingSessionToMemory } from '@/services/dewsync';
+import { resolveDewSyncSettings } from '@/app/reader/hooks/useDewSync';
 import MenuItem from '@/components/MenuItem';
 import Menu from '@/components/Menu';
 
@@ -39,7 +42,7 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ bookKey, setIsDropdownOpen }) => {
   const { user } = useAuth();
   const { envConfig, appService } = useEnv();
   const { getConfig, getBookData } = useBookDataStore();
-  const { setSettingsDialogOpen, setSettingsDialogBookKey } = useSettingsStore();
+  const { settings, setSettingsDialogOpen, setSettingsDialogBookKey } = useSettingsStore();
   const { getView, getViewSettings, getViewState, setViewSettings } = useReaderStore();
   const config = getConfig(bookKey)!;
   const bookData = getBookData(bookKey)!;
@@ -91,6 +94,45 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ bookKey, setIsDropdownOpen }) => {
       setIsDropdownOpen?.(false);
     } else {
       eventDispatcher.dispatch('sync-book-progress', { bookKey });
+    }
+  };
+
+  const dewSync = resolveDewSyncSettings(settings.dewSync);
+  const isDewSyncEnabled = dewSync.enabled && !!dewSync.apiKey;
+
+  const handleShareProgress = async () => {
+    setIsDropdownOpen?.(false);
+    const bookId = bookKey.split('-')[0]!;
+    const { library } = useLibraryStore.getState();
+    const libraryBook = library.find((b) => b.hash === bookId);
+    if (!libraryBook) return;
+    const currentPage = libraryBook.progress?.[0] ?? 0;
+    const sessionStartPage = getViewState(bookKey)?.sessionStartPage ?? 0;
+    const pagesRead = Math.max(0, currentPage - sessionStartPage);
+
+    try {
+      const currentConfig = getConfig(bookKey);
+      const client = new DewMemoryClient(dewSync);
+      const memory = readingSessionToMemory(libraryBook, pagesRead, libraryBook.hash);
+      const result = await client.pushMemory(memory);
+
+      if (result.success) {
+        const primaryId = currentConfig?.dewPrimaryMemoryId;
+        if (primaryId && result.data?.id) {
+          client.relateMemories(result.data.id, primaryId, 'mentions');
+        }
+        eventDispatcher.dispatch('toast', {
+          message: _('Reading progress shared'),
+        });
+      } else {
+        eventDispatcher.dispatch('toast', {
+          message: _('Failed to share reading progress'),
+        });
+      }
+    } catch {
+      eventDispatcher.dispatch('toast', {
+        message: _('Failed to share reading progress'),
+      });
     }
   };
 
@@ -308,6 +350,14 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ bookKey, setIsDropdownOpen }) => {
         iconClassName={user && viewState?.syncing ? 'animate-reverse-spin' : ''}
         onClick={handleSync}
       />
+
+      {isDewSyncEnabled && (
+        <MenuItem
+          label={_('Share Reading Progress')}
+          Icon={MdOutlineSend}
+          onClick={handleShareProgress}
+        />
+      )}
 
       <hr aria-hidden='true' className='border-base-300 my-1' />
 

@@ -35,6 +35,7 @@ interface ViewState {
   ribbonVisible: boolean;
   ttsEnabled: boolean;
   syncing: boolean;
+  sessionStartPage: number;
   gridInsets: Insets | null;
   /* View settings for the view: 
     generally view settings have a hierarchy of global settings < book settings < view settings
@@ -138,6 +139,7 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
           ribbonVisible: false,
           ttsEnabled: false,
           syncing: false,
+          sessionStartPage: 0,
           gridInsets: null,
           viewSettings: null,
         },
@@ -219,6 +221,7 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
             ribbonVisible: false,
             ttsEnabled: false,
             syncing: false,
+            sessionStartPage: book.progress?.[0] ?? 0,
             gridInsets: null,
             viewSettings: { ...globalViewSettings, ...configViewSettings },
           },
@@ -242,6 +245,7 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
             ribbonVisible: false,
             ttsEnabled: false,
             syncing: false,
+            sessionStartPage: 0,
             gridInsets: null,
             viewSettings: null,
           },

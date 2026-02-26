@@ -32,6 +32,20 @@ export function annotationToMemory(
   };
 }
 
+export function readingSessionToMemory(
+  book: Book,
+  pagesRead: number,
+  sourceId?: string,
+): MemoryInput {
+  const [current, total] = book.progress ?? [0, 0];
+  return {
+    content: `Read ${pagesRead} pages of "${book.title}" by ${book.author || 'Unknown'} (now on page ${current}/${total})`,
+    tags: ['reading-session', 'leaf'],
+    sourceConnector: 'leaf',
+    sourceId,
+  };
+}
+
 export function bookCompletionToMemory(book: Book, sourceId?: string): MemoryInput {
   const pages = book.progress?.[1];
   const pagesStr = pages ? ` (${pages} pages)` : '';

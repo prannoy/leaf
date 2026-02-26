@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import React from 'react';
 import Image from 'next/image';
 
-import { MdCheck } from 'react-icons/md';
+import { MdCheck, MdOutlineSend } from 'react-icons/md';
 import { useRouter } from 'next/navigation';
 import { useEnv } from '@/context/EnvContext';
 import { useAuth } from '@/context/AuthContext';
@@ -22,6 +22,9 @@ import { setKOSyncSettingsWindowVisible } from '@/app/reader/components/KOSyncSe
 import { setReadwiseSettingsWindowVisible } from '@/app/reader/components/ReadwiseSettings';
 import { setProofreadRulesVisibility } from '@/app/reader/components/ProofreadRules';
 import { setAboutDialogVisible } from '@/components/AboutWindow';
+import { DewMemoryClient, readingSessionToMemory } from '@/services/dewsync';
+import { resolveDewSyncSettings } from '@/app/reader/hooks/useDewSync';
+import { useBookDataStore } from '@/store/bookDataStore';
 import useBooksManager from '../../hooks/useBooksManager';
 import MenuItem from '@/components/MenuItem';
 import Menu from '@/components/Menu';
@@ -37,7 +40,8 @@ const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen })
   const { envConfig, appService } = useEnv();
   const { user } = useAuth();
   const { settings } = useSettingsStore();
-  const { bookKeys, recreateViewer, getViewSettings, setViewSettings } = useReaderStore();
+  const { bookKeys, recreateViewer, getViewSettings, setViewSettings, getViewState } =
+    useReaderStore();
   const { getVisibleLibrary } = useLibraryStore();
   const { openParallelView } = useBooksManager();
   const { sideBarBookKey } = useSidebarStore();
@@ -108,6 +112,47 @@ const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen })
     eventDispatcher.dispatch('readwise-push-all', { bookKey: sideBarBookKey });
     setIsDropdownOpen?.(false);
   };
+  const { getConfig } = useBookDataStore();
+  const dewSync = resolveDewSyncSettings(settings.dewSync);
+  const isDewSyncEnabled = dewSync.enabled && !!dewSync.apiKey;
+
+  const handleShareProgress = async () => {
+    setIsDropdownOpen?.(false);
+    if (!sideBarBookKey) return;
+    const bookId = sideBarBookKey.split('-')[0]!;
+    const { library } = useLibraryStore.getState();
+    const libraryBook = library.find((b) => b.hash === bookId);
+    if (!libraryBook) return;
+    const currentPage = libraryBook.progress?.[0] ?? 0;
+    const sessionStartPage = getViewState(sideBarBookKey)?.sessionStartPage ?? 0;
+    const pagesRead = Math.max(0, currentPage - sessionStartPage);
+
+    try {
+      const currentConfig = getConfig(sideBarBookKey);
+      const client = new DewMemoryClient(dewSync);
+      const memory = readingSessionToMemory(libraryBook, pagesRead, libraryBook.hash);
+      const result = await client.pushMemory(memory);
+
+      if (result.success) {
+        const primaryId = currentConfig?.dewPrimaryMemoryId;
+        if (primaryId && result.data?.id) {
+          client.relateMemories(result.data.id, primaryId, 'mentions');
+        }
+        eventDispatcher.dispatch('toast', {
+          message: _('Reading progress shared'),
+        });
+      } else {
+        eventDispatcher.dispatch('toast', {
+          message: _('Failed to share reading progress'),
+        });
+      }
+    } catch {
+      eventDispatcher.dispatch('toast', {
+        message: _('Failed to share reading progress'),
+      });
+    }
+  };
+
   const toggleDiscordPresence = () => {
     const discordRichPresenceEnabled = !settings.discordRichPresenceEnabled;
     saveSysSettings(envConfig, 'discordRichPresenceEnabled', discordRichPresenceEnabled);
@@ -189,6 +234,13 @@ const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen })
         </MenuItem>
       ) : (
         <MenuItem label={_('Readwise Sync')} onClick={showReadwiseSettingsWindow} />
+      )}
+      {isDewSyncEnabled && (
+        <MenuItem
+          label={_('Share Reading Progress')}
+          Icon={MdOutlineSend}
+          onClick={handleShareProgress}
+        />
       )}
       {appService?.isDesktopApp && (
         <>
