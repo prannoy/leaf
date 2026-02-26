@@ -53,6 +53,7 @@ export const useDewLibrarySync = () => {
 
       for (const book of currentLibrary) {
         if (book.deletedAt) continue;
+        if (book.format.toLowerCase() !== 'pdf') continue;
 
         // Check if already indexed via BookConfig
         const bookConfig = getConfig(book.hash);

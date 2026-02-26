@@ -62,6 +62,7 @@ export const useDewSync = (bookKey: string) => {
     const book = bookData?.book;
     const currentConfig = getConfig(bookKey);
     if (!book) return;
+    if (book.format.toLowerCase() !== 'pdf') return;
 
     // Skip if already indexed
     if (currentConfig?.dewContentIndexed) {
