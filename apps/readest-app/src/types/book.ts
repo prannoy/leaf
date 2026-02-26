@@ -354,6 +354,7 @@ export interface BookConfig {
 
   dewSyncedMemoryIds?: Record<string, string>;
   dewContentIndexed?: boolean;
+  dewPrimaryMemoryId?: string;
 
   updatedAt: number;
 }

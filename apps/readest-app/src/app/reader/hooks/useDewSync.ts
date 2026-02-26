@@ -91,8 +91,12 @@ export const useDewSync = (bookKey: string) => {
         });
 
         if (result.success) {
-          console.log('[DewSync] Content indexed:', book.title);
-          setConfig(bookKey, { dewContentIndexed: true });
+          const primaryMemoryId = result.data?.memoryId;
+          console.log('[DewSync] Content indexed:', book.title, 'memoryId:', primaryMemoryId);
+          setConfig(bookKey, {
+            dewContentIndexed: true,
+            dewPrimaryMemoryId: primaryMemoryId,
+          });
           hasIndexedRef.current = true;
         } else if (!result.isNetworkError) {
           console.log('[DewSync] Content index failed:', result.message);
@@ -130,11 +134,16 @@ export const useDewSync = (bookKey: string) => {
       }
 
       const client = new DewMemoryClient(dewSync);
-      const memory = bookCompletionToMemory(book);
+      const currentConfig = getConfig(bookKey);
+      const memory = bookCompletionToMemory(book, book.hash);
       console.log('[DewSync] Pushing book completion memory:', book.title);
       client.pushMemory(memory).then((result) => {
-        if (result.success) {
+        if (result.success && result.data?.id) {
           console.log('[DewSync] Book completion memory pushed');
+          const primaryId = currentConfig?.dewPrimaryMemoryId;
+          if (primaryId) {
+            client.relateMemories(result.data.id, primaryId, 'mentions');
+          }
         } else if (!result.isNetworkError) {
           console.log('[DewSync] Book completion push failed:', result.message);
         }
@@ -173,16 +182,23 @@ export const useDewSync = (bookKey: string) => {
 
         const client = new DewMemoryClient(dewSync);
         const updatedSyncedIds = { ...syncedIds };
+        const primaryMemoryId = currentConfig?.dewPrimaryMemoryId;
 
         for (const note of newNotes) {
           const memory =
             note.note && note.note.trim()
-              ? annotationToMemory(note, book.title)
-              : highlightToMemory(note, book.title);
+              ? annotationToMemory(note, book.title, book.hash)
+              : highlightToMemory(note, book.title, book.hash);
 
           const result = await client.pushMemory(memory);
           if (result.success) {
-            updatedSyncedIds[note.id] = result.data?.id || note.id;
+            const noteMemoryId = result.data?.id || note.id;
+            updatedSyncedIds[note.id] = noteMemoryId;
+
+            // Link to the book's primary content memory
+            if (primaryMemoryId && result.data?.id) {
+              client.relateMemories(result.data.id, primaryMemoryId, 'mentions');
+            }
           } else if (!result.isNetworkError) {
             console.log('[DewSync] Memory push failed:', result.message);
           }

@@ -11,6 +11,7 @@ export interface MemoryInput {
   content: string;
   tags: string[];
   sourceConnector: string;
+  sourceId?: string;
 }
 
 interface MemoryResponse {
@@ -19,9 +20,9 @@ interface MemoryResponse {
 
 interface ContentUploadResponse {
   success: boolean;
-  id?: string;
+  memoryId?: string;
+  storageKey?: string;
   message?: string;
-  duplicate?: boolean;
 }
 
 interface ContentUploadOptions {
@@ -72,6 +73,29 @@ export class DewMemoryClient {
       const json = await res.json();
       const payload = json.data ?? json;
       return { success: true, data: { id: payload.id || '' } };
+    } catch (e) {
+      return { success: false, message: (e as Error).message, isNetworkError: true };
+    }
+  }
+
+  async relateMemories(
+    sourceMemoryId: string,
+    targetMemoryId: string,
+    type: string = 'mentions',
+  ): Promise<DewResult> {
+    try {
+      const res = await fetch(`${this.baseUrl}/memories/relate`, {
+        method: 'POST',
+        headers: { ...this.headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceMemoryId, targetMemoryId, type }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        return { success: false, message: `HTTP ${res.status}: ${errText}` };
+      }
+
+      return { success: true };
     } catch (e) {
       return { success: false, message: (e as Error).message, isNetworkError: true };
     }
