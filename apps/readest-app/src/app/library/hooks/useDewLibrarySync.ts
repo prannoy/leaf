@@ -75,15 +75,15 @@ export const useDewLibrarySync = () => {
             author: book.author,
           });
 
-          if (result.success) {
-            const primaryMemoryId = result.data?.memoryId;
+          if (result.success && result.data?.success) {
+            const primaryMemoryId = result.data.memoryId;
             console.log('[DewLibrarySync] Content indexed:', book.title, 'memoryId:', primaryMemoryId);
             setConfig(book.hash, {
               dewContentIndexed: true,
               dewPrimaryMemoryId: primaryMemoryId,
             });
           } else if (!result.isNetworkError) {
-            console.log('[DewLibrarySync] Index failed for', book.title, ':', result.message);
+            console.log('[DewLibrarySync] Index failed for', book.title, ':', result.data?.message || result.message);
           }
         } catch (e) {
           console.log('[DewLibrarySync] Index error for', book.title, ':', e);

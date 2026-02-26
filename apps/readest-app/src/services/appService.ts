@@ -532,6 +532,22 @@ export abstract class BaseAppService implements AppService {
       }
       book.uploadedAt = null;
     }
+    // Clear DewSync state so re-importing triggers fresh content indexing
+    try {
+      const configFp = getConfigFilename(book);
+      if (await this.fs.exists(configFp, 'Books')) {
+        const str = (await this.fs.readFile(configFp, 'Books', 'text')) as string;
+        const config = JSON.parse(str);
+        if (config.dewContentIndexed || config.dewPrimaryMemoryId || config.dewSyncedMemoryIds) {
+          delete config.dewContentIndexed;
+          delete config.dewPrimaryMemoryId;
+          delete config.dewSyncedMemoryIds;
+          await this.fs.writeFile(configFp, 'Books', JSON.stringify(config));
+        }
+      }
+    } catch {
+      // Non-critical: if clearing dew state fails, content will just not re-index
+    }
   }
 
   async uploadFileToCloud(

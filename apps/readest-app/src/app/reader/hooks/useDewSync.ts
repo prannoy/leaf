@@ -90,8 +90,8 @@ export const useDewSync = (bookKey: string) => {
           author: book.author,
         });
 
-        if (result.success) {
-          const primaryMemoryId = result.data?.memoryId;
+        if (result.success && result.data?.success) {
+          const primaryMemoryId = result.data.memoryId;
           console.log('[DewSync] Content indexed:', book.title, 'memoryId:', primaryMemoryId);
           setConfig(bookKey, {
             dewContentIndexed: true,
@@ -99,7 +99,7 @@ export const useDewSync = (bookKey: string) => {
           });
           hasIndexedRef.current = true;
         } else if (!result.isNetworkError) {
-          console.log('[DewSync] Content index failed:', result.message);
+          console.log('[DewSync] Content index failed:', result.data?.message || result.message);
         }
       } catch (e) {
         console.log('[DewSync] Content index error:', e);
